@@ -1,5 +1,20 @@
 package inputs
 
+const (
+	InputTypeSelect   = "select"
+	InputTypeDate     = "date"
+	InputTypeDatetime = "datetime"
+	InputTypeText     = "text"
+	InputTypeNumber   = "number"
+	InputTypeCheckbox = "checkbox"
+	InputTypeLabel    = "label"
+	InputTypeSearch   = "search"
+	InputTypeTextarea = "textarea"
+	InputTypeHidden   = "hidden"
+	InputTypeFile     = "file"
+	InputTypeButton   = "button"
+)
+
 type Input struct {
 	Id              string           `json:"id"`
 	Type            string           `json:"type"`

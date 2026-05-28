@@ -90,8 +90,11 @@ type RouteDefinition struct {
 ```
 - Runtime behavior provider для конкретного типа Page
 - Отвечает за routing semantics, DSL generation, runtime event handling
-- Не хранит runtime state, page instances или sessions
-- `FormEngine` → `GET /page/{key}` + `POST /event/{key}/:component/:action`
+- Хранит DSL/runtime state внутри конкретного per-request Engine instance
+- Хранит root container, DSL tree, registered components, handler registry и generated event route metadata
+- UI source of truth — container hierarchy; registry используется только для fast lookup/path resolution
+- Не является shared singleton и не хранит state между requests
+- `FormEngine` → `GET /page/{key}` + static `POST /event/{key}/{component}/{actionID}` routes from registered listeners
 - `TableEngine` → `GET /page/{key}` + `POST /event/{key}/:component/:action`
 
 ### Page
@@ -103,7 +106,8 @@ type Page interface {
 ```
 - **Stateless**: создаётся на каждый request, уничтожается после ответа
 - Embedding Engine даёт `GetEngine()` автоматически
-- `Init()` — только сборка DSL/runtime model
+- `Init()` — declarative layer: вызывает DSL methods embedded Engine
+- Не хранит controls, handlers registry или DSL tree
 - Event handlers используют `RuntimeContext`, а не `BuildContext`
 
 ### BuildContext / RuntimeContext
@@ -118,13 +122,35 @@ type RuntimeContext struct {
     User       User
     System     SystemKeys
     Params     Params
-    Mutations  *MutationWriter
-    Navigation *NavigationWriter
+    State      map[string]any
+    Mutations  []Mutation
+    Navigation []NavigationItem
 }
 ```
 - `BuildContext` доступен только в `Init()` и не содержит mutation/navigation APIs
 - `RuntimeContext` доступен только в event handlers
-- Backend не делает diff: все изменения идут через explicit mutations/navigation
+- Backend не делает diff: все изменения идут только через explicit `RuntimeContext` operations
+
+### Runtime mutations
+```go
+func OnSave(ctx *engine.RuntimeContext) {
+    ctx.Text("title").SetText("Saved")
+    ctx.SetState("loading", false)
+    ctx.Form().Add(ctx.Text("dynamic_text"))
+    ctx.Remove("old_button")
+    ctx.OpenDialog("users.edit")
+}
+```
+
+Mutation protocol поддерживает только `update`, `add`, `remove`:
+
+```json
+{"type":"update","path":"controls.title.text","value":"Saved"}
+{"type":"add","path":"form.controls","value":{"id":"dynamic_text","type":"text"}}
+{"type":"remove","path":"controls.old_button"}
+```
+
+Navigation хранится отдельно от mutations: `OpenDialog`, `OpenTab`, `Close`, `CloseWithResult`.
 
 ### FormState
 Для формы state не универсальный. Frontend может прислать только конкретный state формы:
@@ -159,30 +185,59 @@ for _, entry := range manifest.All() {
 }
 ```
 - Application проходит manifest
-- Engine сам возвращает routes и runtime handlers
+- Для каждой entry создаётся sample Page, вызывается `Init()`, Engine собирает DSL/components/handlers/routes
+- Engine сам возвращает deterministic route definitions и runtime handlers
 - Application только регистрирует `Method/Path/Handler` в Gin
+- Runtime handler на каждый request работает со свежими `Page` и `Engine` из `entry.Factory()`
+
+### Request lifecycle
+```text
+Request
+↓
+Create Page
+↓
+Create Engine
+↓
+Init()
+↓
+DSL built inside Engine
+↓
+Handle request
+↓
+Dispose
+```
 
 ### Создание новой Page
 ```go
 // 1. Определить struct с embedding нужного Engine
 type MyPage struct {
     *engine.FormEngine
-    dsl any
 }
 
 // 2. Реализовать Init()
 func (p *MyPage) Init(ctx *engine.BuildContext) error {
-    p.dsl = myDSL
+    p.CreateForm(inputs.Form{
+        Containers: &[]inputs.Container{
+            {
+                Key: "main",
+                Fields: []inputs.Input{
+                    {Id: "name", Type: "text", Label: "Name"},
+                    {Id: "save", Type: "button", Label: "Save"},
+                },
+            },
+        },
+    })
+    button, err := p.GetButtonById("save")
+    if err != nil {
+        return err
+    }
+    button.SetOnClick(OnSave)
     return nil
 }
 
-func (p *MyPage) DSL() any {
-    return p.dsl
-}
-
-func (p *MyPage) HandleEvent(ctx *engine.RuntimeContext, event engine.Event) error {
-    ctx.Mutations.Update("status", "ok")
-    return nil
+func OnSave(ctx *engine.RuntimeContext) {
+    ctx.Text("status").SetText("Saved")
+    ctx.SetState("saved", true)
 }
 
 // 3. Создать фабрику
@@ -201,7 +256,7 @@ m.Register("my.page", page.NewMyPage)
 | Manifest Key   | Engine | Routes                                              |
 |----------------|--------|-----------------------------------------------------|
 | `users.list`   | Table  | `GET /page/users.list`, `POST /event/users.list/:component/:action` |
-| `users.edit`   | Form   | `GET /page/users.edit`, `POST /event/users.edit/:component/:action` |
+| `users.edit`   | Form   | `GET /page/users.edit`, `POST /event/users.edit/button/save` |
 | `admin.roles`  | Table  | `GET /page/admin.roles`, `POST /event/admin.roles/:component/:action` |
 
 ---
@@ -210,7 +265,12 @@ m.Register("my.page", page.NewMyPage)
 
 - ✅ Разделение responsibilities: Application / Engine / Page / Manifest
 - ✅ Stateless backend runtime — нет state между requests
+- ✅ DSL принадлежит конкретному Engine instance, а не Page
+- ✅ UI хранится как tree hierarchy от root container
+- ✅ Component registry является индексом поверх tree, а не source of truth
+- ✅ Engine instance создаётся на каждый request и уничтожается после ответа
 - ✅ Deterministic bootstrap — routes генерируются один раз при старте
 - ✅ No dynamic route registration during requests
+- ✅ No global DSL storage, shared engines или stateful singleton engines
 - ✅ No hidden lifecycle — весь flow явный и предсказуемый
 - ✅ UMA-friendly keys — стабильные dot-notation identifiers

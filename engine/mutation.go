@@ -11,9 +11,9 @@ const (
 
 // Mutation is an explicit frontend runtime change.
 type Mutation struct {
-	Type   MutationType `json:"type"`
-	Target string       `json:"target"`
-	Value  any          `json:"value,omitempty"`
+	Type  MutationType `json:"type"`
+	Path  string       `json:"path"`
+	Value any          `json:"value,omitempty"`
 }
 
 // MutationWriter collects explicit runtime mutations.
@@ -22,18 +22,18 @@ type MutationWriter struct {
 }
 
 // Update records a control/node update.
-func (w *MutationWriter) Update(target string, value any) {
-	w.items = append(w.items, Mutation{Type: MutationUpdate, Target: target, Value: value})
+func (w *MutationWriter) Update(path string, value any) {
+	w.items = append(w.items, Mutation{Type: MutationUpdate, Path: path, Value: value})
 }
 
 // Add records a node add mutation.
-func (w *MutationWriter) Add(target string, value any) {
-	w.items = append(w.items, Mutation{Type: MutationAdd, Target: target, Value: value})
+func (w *MutationWriter) Add(path string, value any) {
+	w.items = append(w.items, Mutation{Type: MutationAdd, Path: path, Value: value})
 }
 
 // Remove records a node remove mutation.
-func (w *MutationWriter) Remove(target string) {
-	w.items = append(w.items, Mutation{Type: MutationRemove, Target: target})
+func (w *MutationWriter) Remove(path string) {
+	w.items = append(w.items, Mutation{Type: MutationRemove, Path: path})
 }
 
 // Items returns collected mutations.

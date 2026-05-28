@@ -1,7 +1,7 @@
 package engine
 
 // Engine — интерфейс, который должен реализовывать каждый движок.
-// Engine не хранит runtime state и page instances.
+// Engine хранит DSL/runtime state только внутри конкретного per-request instance.
 // Он предоставляет runtime strategy: routes, DSL rendering и event handling.
 type Engine interface {
 	// ID возвращает стабильный identifier движка.

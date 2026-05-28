@@ -15,8 +15,3 @@ type Page interface {
 // PageFactory — функция-фабрика, создающая новый экземпляр Page.
 // Регистрируется в Manifest. Вызывается на каждый request.
 type PageFactory func() Page
-
-// DSLPage can be implemented by pages that expose their built DSL to an engine.
-type DSLPage interface {
-	DSL() any
-}

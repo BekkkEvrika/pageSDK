@@ -1,5 +1,7 @@
 package engine
 
+import inputs "github.com/behzod/pageSDK/form"
+
 // User contains authenticated user claims available to build and runtime code.
 type User map[string]any
 
@@ -21,8 +23,10 @@ type RuntimeContext struct {
 	User       User
 	System     SystemKeys
 	Params     Params
-	Mutations  *MutationWriter
-	Navigation *NavigationWriter
+	State      map[string]any
+	Mutations  []Mutation
+	Navigation []NavigationItem
+	formRoot   *inputs.Container
 }
 
 // BuildContext creates a build-only context from a request snapshot.
@@ -36,11 +40,14 @@ func (r *RequestContext) BuildContext() *BuildContext {
 
 // RuntimeContext creates a runtime context with explicit mutation/navigation writers.
 func (r *RequestContext) RuntimeContext() *RuntimeContext {
+	params := r.Params
+	if params == nil {
+		params = Params{}
+	}
 	return &RuntimeContext{
-		User:       r.User,
-		System:     r.System,
-		Params:     r.Params,
-		Mutations:  &MutationWriter{},
-		Navigation: &NavigationWriter{},
+		User:   r.User,
+		System: r.System,
+		Params: params,
+		State:  map[string]any{},
 	}
 }

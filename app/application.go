@@ -1,6 +1,7 @@
 package app
 
 import (
+	"io"
 	"net/http"
 
 	"github.com/behzod/pageSDK/engine"
@@ -49,14 +50,14 @@ func (a *Application) Bootstrap(initFn InitFunc, addr string) error {
 	return a.router.Run(addr)
 }
 
-// registerRoutes итерирует manifest и делегирует регистрацию routes
-// конкретному Engine каждой page. Application регистрирует только Method/Path/Handler.
+// registerRoutes итерирует manifest и получает route metadata из sample Engine.
+// Runtime request использует свежий Engine из новой Page.
 func (a *Application) registerRoutes() {
 	for _, entry := range a.manifest.All() {
 		entry := entry // capture
 
-		// Создаём временный экземпляр page только для получения Engine.
-		// Сам page не используется для обработки request — только для метаданных.
+		// Создаём временный экземпляр page только для получения route metadata.
+		// Сам page и его Engine не используются для обработки request.
 		samplePage := entry.Factory()
 		eng := samplePage.GetEngine()
 
@@ -89,12 +90,14 @@ func (a *Application) makeGinHandler(entry manifest.Entry, handler engine.RouteH
 }
 
 func (a *Application) newRequestContext(ctx *gin.Context, pageKey string) *engine.RequestContext {
+	body, _ := io.ReadAll(ctx.Request.Body)
 	return &engine.RequestContext{
 		PageKey: pageKey,
 		Params:  routeParams(ctx),
 		Query:   queryParams(ctx),
 		User:    engine.User{},
 		System:  engine.SystemKeys{},
+		Body:    body,
 	}
 }
 

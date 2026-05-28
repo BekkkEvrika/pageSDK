@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"errors"
 	"net/http"
 )
 
@@ -12,7 +11,33 @@ import (
 //
 //	GET  /page/{key}                       — рендер таблицы (DSL + данные)
 //	POST /event/{key}/{component}/{action} — обработка событий таблицы
-type TableEngine struct{}
+type TableEngine struct {
+	dsl TableDSL
+}
+
+type TableDSL struct {
+	Columns []TableColumn `json:"columns,omitempty"`
+}
+
+type TableColumn struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+}
+
+// SetDSL replaces the current table DSL owned by this engine instance.
+func (t *TableEngine) SetDSL(dsl TableDSL) {
+	t.dsl = dsl
+}
+
+// Column appends a table column to this engine instance.
+func (t *TableEngine) Column(key, label string) {
+	t.dsl.Columns = append(t.dsl.Columns, TableColumn{Key: key, Label: label})
+}
+
+// DSL returns the table DSL owned by this engine instance.
+func (t *TableEngine) DSL() any {
+	return t.dsl
+}
 
 // ID возвращает identifier движка.
 func (t *TableEngine) ID() string {
@@ -41,15 +66,10 @@ func (t *TableEngine) Render(ctx *RequestContext, page Page) (*RenderResult, err
 		return nil, err
 	}
 
-	dslPage, ok := page.(DSLPage)
-	if !ok {
-		return nil, errors.New("table engine: page must implement DSL()")
-	}
-
 	return &RenderResult{
 		PageKey: ctx.PageKey,
 		Engine:  t.ID(),
-		DSL:     dslPage.DSL(),
+		DSL:     t.DSL(),
 	}, nil
 }
 
@@ -72,8 +92,8 @@ func (t *TableEngine) Handle(ctx *RequestContext, page Page) (*RuntimeResult, er
 	}
 
 	return &RuntimeResult{
-		Mutations:  runtimeCtx.Mutations.Items(),
-		Navigation: runtimeCtx.Navigation.Items(),
+		Mutations:  runtimeCtx.Mutations,
+		Navigation: runtimeCtx.Navigation,
 	}, nil
 }
 
@@ -85,13 +105,13 @@ func (t *TableEngine) GetEngine() Engine {
 func (t *TableEngine) renderRoute(pageKey string) RouteHandler {
 	return func(ctx *RequestContext, page Page) (any, error) {
 		ctx.PageKey = pageKey
-		return t.Render(ctx, page)
+		return page.GetEngine().Render(ctx, page)
 	}
 }
 
 func (t *TableEngine) handleRoute(pageKey string) RouteHandler {
 	return func(ctx *RequestContext, page Page) (any, error) {
 		ctx.PageKey = pageKey
-		return t.Handle(ctx, page)
+		return page.GetEngine().Handle(ctx, page)
 	}
 }

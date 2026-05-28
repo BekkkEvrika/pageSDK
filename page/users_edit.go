@@ -10,10 +10,9 @@ import (
 //
 // Embedding *engine.FormEngine даёт:
 //   - реализацию GetEngine() — Application знает какой движок использовать
-//   - routing semantics FormEngine (GET /page/{key}, POST /event/{key}/{component}/{action})
+//   - routing semantics FormEngine (GET /page/{key}, static POST event routes)
 type UsersEditPage struct {
 	*engine.FormEngine
-	dsl any
 }
 
 // NewUsersEditPage — фабрика для регистрации в Manifest.
@@ -25,7 +24,7 @@ func NewUsersEditPage() engine.Page {
 
 // Init вызывается на каждый request и только собирает DSL.
 func (p *UsersEditPage) Init(ctx *engine.BuildContext) error {
-	p.dsl = inputs.Form{
+	p.CreateForm(inputs.Form{
 		Containers: &[]inputs.Container{
 			{
 				Key:       "main",
@@ -34,12 +33,12 @@ func (p *UsersEditPage) Init(ctx *engine.BuildContext) error {
 				Fields: []inputs.Input{
 					{
 						Id:    "name",
-						Type:  "text",
+						Type:  inputs.InputTypeText,
 						Label: "Имя пользователя",
 					},
 					{
 						Id:    "email",
-						Type:  "email",
+						Type:  inputs.InputTypeText,
 						Label: "Email",
 					},
 				},
@@ -57,25 +56,28 @@ func (p *UsersEditPage) Init(ctx *engine.BuildContext) error {
 				},
 			},
 		},
+	})
+
+	save, err := p.GetButtonById("save")
+	if err != nil {
+		return err
 	}
+	save.SetOnClick(OnSave)
+
+	name, err := p.GetTextById("name")
+	if err != nil {
+		return err
+	}
+	name.SetOnChange(OnNameChange)
 
 	return nil
 }
 
-// DSL возвращает собранный declarative runtime model.
-func (p *UsersEditPage) DSL() any {
-	return p.dsl
+func OnSave(ctx *engine.RuntimeContext) {
+	ctx.Text("status").SetText("Saved")
+	ctx.SetState("lastAction", ctx.Params["form.actionId"])
 }
 
-// HandleEvent обрабатывает runtime events через explicit RuntimeContext.
-func (p *UsersEditPage) HandleEvent(ctx *engine.RuntimeContext, event engine.Event) error {
-	if event.Component == "button" && event.Action == "save" {
-		state, ok := event.Payload.(*inputs.FormState)
-		if !ok {
-			return nil
-		}
-		ctx.Mutations.Update("form.status", map[string]any{"status": "ok"})
-		ctx.Mutations.Update("form.lastAction", state.ActionID)
-	}
-	return nil
+func OnNameChange(ctx *engine.RuntimeContext) {
+	ctx.SetState("nameChanged", true)
 }

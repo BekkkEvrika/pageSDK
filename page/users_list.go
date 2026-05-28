@@ -8,7 +8,6 @@ import (
 // Использует TableEngine: GET /page/users.list
 type UsersListPage struct {
 	*engine.TableEngine
-	dsl any
 }
 
 // NewUsersListPage — фабрика для регистрации в Manifest.
@@ -20,17 +19,8 @@ func NewUsersListPage() engine.Page {
 
 // Init вызывается на каждый request и только собирает DSL.
 func (p *UsersListPage) Init(ctx *engine.BuildContext) error {
-	p.dsl = map[string]any{
-		"columns": []map[string]any{
-			{"key": "id", "label": "ID"},
-			{"key": "name", "label": "Имя"},
-			{"key": "email", "label": "Email"},
-		},
-	}
+	p.Column("id", "ID")
+	p.Column("name", "Имя")
+	p.Column("email", "Email")
 	return nil
-}
-
-// DSL возвращает собранный declarative runtime model.
-func (p *UsersListPage) DSL() any {
-	return p.dsl
 }
