@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 
 	inputs "github.com/behzod/pageSDK/form"
 )
@@ -93,7 +94,7 @@ func (f *FormEngine) Button(actionID string) *Button {
 		Trigger: inputs.Click,
 		Config: &inputs.FormActionConfig{
 			Type:   inputs.APICall,
-			URL:    "/event/{page}/button/" + actionID,
+			URL:    eventRoutePath("", inputs.InputTypeButton, actionID),
 			Method: http.MethodPost,
 		},
 	})
@@ -248,7 +249,9 @@ func (f *FormEngine) ID() string {
 // Вызывается один раз во время Bootstrap после Init() sample page.
 func (f *FormEngine) Routes(pageKey string, page Page) []RouteDefinition {
 	if page != nil {
-		_ = page.Init(&BuildContext{})
+		if err := page.Init(&BuildContext{}); err != nil {
+			panic("form engine: init page " + pageKey + ": " + err.Error())
+		}
 	}
 
 	routes := []RouteDefinition{
@@ -275,6 +278,7 @@ func (f *FormEngine) Render(ctx *RequestContext, page Page) (*RenderResult, erro
 	if err := page.Init(ctx.BuildContext()); err != nil {
 		return nil, err
 	}
+	f.bindFormActionRoutes(ctx.PageKey)
 
 	return &RenderResult{
 		PageKey: ctx.PageKey,
@@ -294,6 +298,8 @@ func (f *FormEngine) Handle(ctx *RequestContext, page Page) (*RuntimeResult, err
 		return nil, err
 	}
 	runtimeCtx := ctx.RuntimeContext()
+	runtimeCtx.FormState = state
+	runtimeCtx.Sender = state.Sender
 	runtimeCtx.bindFormTree(&f.root)
 	runtimeCtx.Params["form.actionId"] = state.ActionID
 	handler := f.handler(formEventKey{
@@ -304,6 +310,9 @@ func (f *FormEngine) Handle(ctx *RequestContext, page Page) (*RuntimeResult, err
 		return nil, fmt.Errorf("form engine: handler for %q/%q not found", ctx.Params["component"], ctx.Params["action"])
 	}
 	handler(runtimeCtx)
+	if runtimeCtx.err != nil {
+		return nil, runtimeCtx.err
+	}
 
 	return &RuntimeResult{
 		Mutations:  runtimeCtx.Mutations,
@@ -357,8 +366,9 @@ func (f *FormEngine) defaultContainer() *inputs.Container {
 	return &(*containers)[0]
 }
 
-func (f *FormEngine) registerFormEvent(component, action string, input *inputs.Input, handler formEventHandler) {
+func (f *FormEngine) registerFormEvent(component, action string, trigger inputs.FormActionTrigger, input *inputs.Input, handler formEventHandler) {
 	f.registerComponent(*input, "", "")
+	f.upsertGeneratedFormAction(component, action, trigger, "")
 	if f.handlers == nil {
 		f.handlers = map[string]map[string]formEventHandler{}
 	}
@@ -400,6 +410,70 @@ func (f *FormEngine) generateEventRoutes(pageKey string) {
 			Path:   "/event/" + pageKey + "/" + key.Component + "/" + key.Action,
 		})
 	}
+}
+
+func (f *FormEngine) upsertGeneratedFormAction(component, action string, trigger inputs.FormActionTrigger, pageKey string) {
+	generated := inputs.FormAction{
+		ID:      action,
+		Trigger: trigger,
+		Config: &inputs.FormActionConfig{
+			Type:   formActionType(trigger),
+			URL:    eventRoutePath(pageKey, component, action),
+			Method: http.MethodPost,
+		},
+	}
+	found := false
+	actions := f.formActions[:0]
+	for i := range f.formActions {
+		if f.formActions[i].ID == generated.ID && f.formActions[i].Trigger == generated.Trigger {
+			if !found {
+				actions = append(actions, generated)
+				found = true
+			}
+			continue
+		}
+		actions = append(actions, f.formActions[i])
+	}
+	if !found {
+		actions = append(actions, generated)
+	}
+	f.formActions = actions
+}
+
+func (f *FormEngine) bindFormActionRoutes(pageKey string) {
+	if pageKey == "" {
+		return
+	}
+	for _, key := range f.eventKeys() {
+		trigger, ok := f.formActionTrigger(key)
+		if !ok {
+			continue
+		}
+		f.upsertGeneratedFormAction(key.Component, key.Action, trigger, pageKey)
+	}
+}
+
+func (f *FormEngine) formActionTrigger(key formEventKey) (inputs.FormActionTrigger, bool) {
+	for _, action := range f.formActions {
+		if action.ID == key.Action && action.Config != nil && strings.HasSuffix(action.Config.URL, "/"+key.Component+"/"+key.Action) {
+			return action.Trigger, true
+		}
+	}
+	return "", false
+}
+
+func formActionType(trigger inputs.FormActionTrigger) inputs.FormActionType {
+	if trigger == inputs.Change {
+		return inputs.ChangeAPICall
+	}
+	return inputs.APICall
+}
+
+func eventRoutePath(pageKey, component, action string) string {
+	if pageKey == "" {
+		pageKey = "{page}"
+	}
+	return "/event/" + pageKey + "/" + component + "/" + action
 }
 
 func (f *FormEngine) registerComponent(input inputs.Input, parentID, parentPath string) {
@@ -499,5 +573,39 @@ func formState(ctx *RequestContext) (*inputs.FormState, error) {
 	if state.ActionID == "" {
 		state.ActionID = ctx.Params["action"]
 	}
+	normalizeFormState(state)
 	return state, nil
+}
+
+func normalizeFormState(state *inputs.FormState) {
+	if len(state.Elements) == 0 && len(state.Fields) > 0 {
+		keys := make([]string, 0, len(state.Fields))
+		for key := range state.Fields {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			element := state.Fields[key]
+			if element.Id == "" {
+				element.Id = key
+			}
+			state.Elements = append(state.Elements, element)
+		}
+	}
+	if state.Sender != nil {
+		return
+	}
+	senderID := state.ChangedField
+	if senderID == "" {
+		senderID = state.ActionID
+	}
+	if senderID == "" {
+		return
+	}
+	for i := range state.Elements {
+		if state.Elements[i].Id == senderID {
+			state.Sender = &state.Elements[i]
+			return
+		}
+	}
 }

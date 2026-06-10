@@ -43,16 +43,133 @@ func (p *testFormEventPage) Init(ctx *BuildContext) error {
 
 	name := p.Text("name")
 	name.SetOnChange(testOnNameChange)
+	p.Text("saved")
+	p.Text("changed")
 
 	return nil
 }
 
+type testFormStatePage struct {
+	*FormEngine
+}
+
+type testMissingRuntimeControlPage struct {
+	*FormEngine
+}
+
+func (p *testMissingRuntimeControlPage) Init(ctx *BuildContext) error {
+	save := p.Button("save")
+	save.SetOnClick(func(ctx *RuntimeContext) {
+		missing, err := ctx.GetTextById("missing")
+		if err != nil {
+			return
+		}
+		missing.SetValue(true)
+	})
+	return nil
+}
+
+func (p *testFormStatePage) Init(ctx *BuildContext) error {
+	p.Text("name")
+	save := p.Button("save")
+	p.Text("missing")
+	p.Text("fieldId")
+	p.Text("fieldType")
+	p.Text("fieldLabel")
+	p.Text("fieldPlaceholder")
+	p.Text("fieldValue")
+	p.Text("fieldMode")
+	p.Text("actionId")
+	p.Text("changedField")
+	p.Text("senderId")
+	p.Text("senderType")
+	p.Text("senderValue")
+	save.SetOnClick(func(ctx *RuntimeContext) {
+		name, err := ctx.GetTextById("name")
+		if err != nil {
+			missing, err := ctx.GetTextById("missing")
+			if err != nil {
+				return
+			}
+			missing.SetValue(true)
+			return
+		}
+		field := name.Element()
+		fieldID, err := ctx.GetTextById("fieldId")
+		if err != nil {
+			return
+		}
+		fieldType, err := ctx.GetTextById("fieldType")
+		if err != nil {
+			return
+		}
+		fieldLabel, err := ctx.GetTextById("fieldLabel")
+		if err != nil {
+			return
+		}
+		fieldPlaceholder, err := ctx.GetTextById("fieldPlaceholder")
+		if err != nil {
+			return
+		}
+		fieldValue, err := ctx.GetTextById("fieldValue")
+		if err != nil {
+			return
+		}
+		fieldMode, err := ctx.GetTextById("fieldMode")
+		if err != nil {
+			return
+		}
+		actionID, err := ctx.GetTextById("actionId")
+		if err != nil {
+			return
+		}
+		changedField, err := ctx.GetTextById("changedField")
+		if err != nil {
+			return
+		}
+		fieldID.SetValue(field.Id)
+		fieldType.SetValue(field.Type)
+		fieldLabel.SetValue(field.Label)
+		fieldPlaceholder.SetValue(field.Placeholder)
+		fieldValue.SetValue(field.Value)
+		fieldMode.SetValue(field.Props["mode"])
+		actionID.SetValue(ctx.FormState.ActionID)
+		changedField.SetValue(ctx.FormState.ChangedField)
+		if ctx.Sender != nil {
+			senderID, err := ctx.GetTextById("senderId")
+			if err != nil {
+				return
+			}
+			senderType, err := ctx.GetTextById("senderType")
+			if err != nil {
+				return
+			}
+			senderValue, err := ctx.GetTextById("senderValue")
+			if err != nil {
+				return
+			}
+			senderID.SetValue(ctx.Sender.Id)
+			senderType.SetValue(ctx.Sender.Type)
+			senderValue.SetValue(ctx.Sender.Value)
+		}
+	})
+	return nil
+}
+
 func testOnSave(ctx *RuntimeContext) {
-	ctx.SetState("saved", true)
+	saved, err := ctx.GetTextById("saved")
+	if err != nil {
+		return
+	}
+	saved.SetValue(true)
 }
 
 func testOnNameChange(ctx *RuntimeContext) {
-	ctx.SetState("changed", true)
+	changed, err := ctx.GetTextById("changed")
+	if err != nil {
+		return
+	}
+	changed.SetValue(true)
 }
 
 func TestFormRouteUsesRequestEngineInstance(t *testing.T) {
@@ -274,6 +391,45 @@ func TestFormEngineGeneratesStaticEventRoutes(t *testing.T) {
 	}
 }
 
+func TestFormEngineIncludesRegisteredEventsInRenderedActions(t *testing.T) {
+	page := &testFormEventPage{FormEngine: &FormEngine{}}
+	result, err := page.FormEngine.Render(&RequestContext{PageKey: "test.form"}, page)
+	if err != nil {
+		t.Fatalf("render returned error: %v", err)
+	}
+
+	form, ok := result.DSL.(inputs.Form)
+	if !ok {
+		t.Fatalf("expected form DSL, got %T", result.DSL)
+	}
+	if form.FormActions == nil {
+		t.Fatal("expected rendered form actions")
+	}
+	actions := *form.FormActions
+	if len(actions) != 2 {
+		t.Fatalf("expected registered event actions without duplicates, got %#v", actions)
+	}
+
+	assertAction := func(id string, trigger inputs.FormActionTrigger, actionType inputs.FormActionType, url string) {
+		t.Helper()
+		for _, action := range actions {
+			if action.ID == id && action.Trigger == trigger {
+				if action.Config == nil {
+					t.Fatalf("expected config for action %#v", action)
+				}
+				if action.Config.Type != actionType || action.Config.URL != url || action.Config.Method != "POST" {
+					t.Fatalf("unexpected action config for %s: %#v", id, action.Config)
+				}
+				return
+			}
+		}
+		t.Fatalf("expected action %s/%s in %#v", id, trigger, actions)
+	}
+
+	assertAction("save", inputs.Click, inputs.APICall, "/event/test.form/button/save")
+	assertAction("name", inputs.Change, inputs.ChangeAPICall, "/event/test.form/text/name")
+}
+
 func TestFormEngineOwnsComponentsHandlersAndRouteMetadata(t *testing.T) {
 	page := &testFormEventPage{FormEngine: &FormEngine{}}
 	page.FormEngine.Routes("test.form", page)
@@ -330,19 +486,130 @@ func TestFormEngineStaticEventRouteInvokesFreshPageHandler(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected *RuntimeResult, got %T", result)
 	}
-	if len(runtime.Mutations) != 1 || runtime.Mutations[0].Path != "state.saved" {
+	if len(runtime.Mutations) != 1 || runtime.Mutations[0].Path != "controls.saved.value" {
 		t.Fatalf("expected save mutation, got %#v", runtime.Mutations)
+	}
+}
+
+func TestFormEngineRuntimeContextReceivesFullFormState(t *testing.T) {
+	page := &testFormStatePage{FormEngine: &FormEngine{}}
+	routes := page.FormEngine.Routes("test.form", page)
+
+	var handler RouteHandler
+	for _, route := range routes {
+		if route.Path == "/event/test.form/button/save" {
+			handler = route.Handler
+			break
+		}
+	}
+	if handler == nil {
+		t.Fatal("expected button event route handler")
+	}
+
+	body := []byte(`{
+		"elements": [
+			{
+				"id": "name",
+				"type": "text",
+				"label": "Name",
+				"placeholder": "Enter name",
+				"value": "Alice",
+				"mode": "editable"
+			},
+			{
+				"id": "save",
+				"type": "button",
+				"label": "Save",
+				"value": true
+			}
+		],
+		"sender": {
+			"id": "save",
+			"type": "button",
+			"label": "Save",
+			"value": true
+		},
+		"actionId": "save",
+		"trigger": "click",
+		"changedField": "save"
+	}`)
+	result, err := handler(&RequestContext{Body: body}, &testFormStatePage{FormEngine: &FormEngine{}})
+	if err != nil {
+		t.Fatalf("route handler returned error: %v", err)
+	}
+	runtime, ok := result.(*RuntimeResult)
+	if !ok {
+		t.Fatalf("expected *RuntimeResult, got %T", result)
+	}
+	got := map[string]any{}
+	for _, mutation := range runtime.Mutations {
+		got[mutation.Path] = mutation.Value
+	}
+	want := map[string]any{
+		"controls.fieldId.value":          "name",
+		"controls.fieldType.value":        inputs.InputTypeText,
+		"controls.fieldLabel.value":       "Name",
+		"controls.fieldPlaceholder.value": "Enter name",
+		"controls.fieldValue.value":       "Alice",
+		"controls.fieldMode.value":        "editable",
+		"controls.actionId.value":         "save",
+		"controls.changedField.value":     "save",
+		"controls.senderId.value":         "save",
+		"controls.senderType.value":       inputs.InputTypeButton,
+		"controls.senderValue.value":      true,
+	}
+	for path, value := range want {
+		if got[path] != value {
+			t.Fatalf("expected mutation %s=%#v, got %#v", path, value, runtime.Mutations)
+		}
+	}
+}
+
+func TestFormEngineRuntimeMutationRequiresExistingDSLControl(t *testing.T) {
+	page := &testMissingRuntimeControlPage{FormEngine: &FormEngine{}}
+	routes := page.FormEngine.Routes("test.form", page)
+
+	var handler RouteHandler
+	for _, route := range routes {
+		if route.Path == "/event/test.form/button/save" {
+			handler = route.Handler
+			break
+		}
+	}
+	if handler == nil {
+		t.Fatal("expected button event route handler")
+	}
+
+	_, err := handler(&RequestContext{}, &testMissingRuntimeControlPage{FormEngine: &FormEngine{}})
+	if err == nil {
+		t.Fatal("expected missing runtime control error")
+	}
+	if got := err.Error(); got != `runtime context: input "missing" not found in DSL` {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestRuntimeContextExplicitOperations(t *testing.T) {
 	ctx := (&RequestContext{}).RuntimeContext()
 	root := newRootContainer()
+	root.Fields = []inputs.Input{
+		{Id: "title", Type: inputs.InputTypeText},
+		{Id: "loading", Type: inputs.InputTypeText},
+		{Id: "old_button", Type: inputs.InputTypeButton},
+	}
 	ctx.bindFormTree(&root)
 
-	ctx.Text("title").SetText("Saved")
-	ctx.SetState("loading", false)
-	ctx.Form().Add(ctx.Text("dynamic_text"))
+	title, err := ctx.GetTextById("title")
+	if err != nil {
+		t.Fatalf("expected title control: %v", err)
+	}
+	loading, err := ctx.GetTextById("loading")
+	if err != nil {
+		t.Fatalf("expected loading control: %v", err)
+	}
+	title.SetText("Saved")
+	loading.SetValue(false)
+	ctx.Form().Add(inputs.Input{Id: "dynamic_text", Type: inputs.InputTypeText})
 	ctx.Remove("old_button")
 	ctx.OpenDialog("users.edit")
 	ctx.OpenTab("analytics.dashboard")
@@ -355,13 +622,13 @@ func TestRuntimeContextExplicitOperations(t *testing.T) {
 	if ctx.Mutations[0].Type != MutationUpdate || ctx.Mutations[0].Path != "controls.title.text" {
 		t.Fatalf("expected title text update mutation, got %#v", ctx.Mutations[0])
 	}
-	if ctx.Mutations[1].Type != MutationUpdate || ctx.Mutations[1].Path != "state.loading" {
-		t.Fatalf("expected state update mutation, got %#v", ctx.Mutations[1])
+	if ctx.Mutations[1].Type != MutationUpdate || ctx.Mutations[1].Path != "controls.loading.value" {
+		t.Fatalf("expected loading value update mutation, got %#v", ctx.Mutations[1])
 	}
 	if ctx.Mutations[2].Type != MutationAdd || ctx.Mutations[2].Path != "form.controls" {
 		t.Fatalf("expected add mutation, got %#v", ctx.Mutations[2])
 	}
-	if len(root.Fields) != 1 || root.Fields[0].Id != "dynamic_text" {
+	if findInputByIdInContainer(&root, "dynamic_text") == nil {
 		t.Fatalf("expected add operation to update runtime tree, got %#v", root)
 	}
 	if ctx.Mutations[3].Type != MutationRemove || ctx.Mutations[3].Path != "controls.old_button" {

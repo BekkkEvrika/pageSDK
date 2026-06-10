@@ -22,7 +22,7 @@ func main() {
 func projectInitial(a *app.Application) {
 	m := a.Manifest()
 
-	m.Register("users.list", page.NewUsersListPage)
+	//m.Register("users.list", page.NewUsersListPage)
 	m.Register("users.edit", page.NewUsersEditPage)
-	m.Register("admin.roles", page.NewAdminRolesPage)
+	//m.Register("admin.roles", page.NewAdminRolesPage)
 }

@@ -41,18 +41,26 @@ func (p *UsersEditPage) Init(ctx *engine.BuildContext) error {
 						Type:  inputs.InputTypeText,
 						Label: "Email",
 					},
-				},
-			},
-		},
-		FormActions: &[]inputs.FormAction{
-			{
-				ID:      "save",
-				Trigger: inputs.Click,
-				Config: &inputs.FormActionConfig{
-					Type:           inputs.APICall,
-					URL:            "/event/users.edit/button/save",
-					Method:         "POST",
-					SuccessMessage: "Пользователь сохранён",
+					{
+						Id:    "save",
+						Type:  inputs.InputTypeButton,
+						Label: "Сохранить",
+					},
+					{
+						Id:    "status",
+						Type:  inputs.InputTypeText,
+						Label: "Статус",
+					},
+					{
+						Id:    "lastAction",
+						Type:  inputs.InputTypeText,
+						Label: "Последнее действие",
+					},
+					{
+						Id:    "nameChanged",
+						Type:  inputs.InputTypeCheckbox,
+						Label: "Имя изменено",
+					},
 				},
 			},
 		},
@@ -63,21 +71,31 @@ func (p *UsersEditPage) Init(ctx *engine.BuildContext) error {
 		return err
 	}
 	save.SetOnClick(OnSave)
-
 	name, err := p.GetTextById("name")
 	if err != nil {
 		return err
 	}
 	name.SetOnChange(OnNameChange)
-
 	return nil
 }
 
 func OnSave(ctx *engine.RuntimeContext) {
-	ctx.Text("status").SetText("Saved")
-	ctx.SetState("lastAction", ctx.Params["form.actionId"])
+	status, err := ctx.GetTextById("status")
+	if err != nil {
+		return
+	}
+	lastAction, err := ctx.GetTextById("lastAction")
+	if err != nil {
+		return
+	}
+	status.SetText("Saved")
+	lastAction.SetValue(ctx.Params["form.actionId"])
 }
 
 func OnNameChange(ctx *engine.RuntimeContext) {
-	ctx.SetState("nameChanged", true)
+	nameChanged, err := ctx.GetCheckboxById("nameChanged")
+	if err != nil {
+		return
+	}
+	nameChanged.SetValue(true)
 }

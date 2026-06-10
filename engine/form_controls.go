@@ -117,43 +117,43 @@ type File struct{ FormControl }
 type Button struct{ FormControl }
 
 func (c *Select) SetOnChange(listener ChangeListener) {
-	c.engine.registerFormEvent(c.input.Type, c.input.Id, c.input, func(ctx *RuntimeContext) { listener(ctx) })
+	c.engine.registerFormEvent(c.input.Type, c.input.Id, inputs.Change, c.input, func(ctx *RuntimeContext) { listener(ctx) })
 }
 
 func (c *Date) SetOnChange(listener ChangeListener) {
-	c.engine.registerFormEvent(c.input.Type, c.input.Id, c.input, func(ctx *RuntimeContext) { listener(ctx) })
+	c.engine.registerFormEvent(c.input.Type, c.input.Id, inputs.Change, c.input, func(ctx *RuntimeContext) { listener(ctx) })
 }
 
 func (c *Datetime) SetOnChange(listener ChangeListener) {
-	c.engine.registerFormEvent(c.input.Type, c.input.Id, c.input, func(ctx *RuntimeContext) { listener(ctx) })
+	c.engine.registerFormEvent(c.input.Type, c.input.Id, inputs.Change, c.input, func(ctx *RuntimeContext) { listener(ctx) })
 }
 
 func (c *Text) SetOnChange(listener ChangeListener) {
-	c.engine.registerFormEvent(c.input.Type, c.input.Id, c.input, func(ctx *RuntimeContext) { listener(ctx) })
+	c.engine.registerFormEvent(c.input.Type, c.input.Id, inputs.Change, c.input, func(ctx *RuntimeContext) { listener(ctx) })
 }
 
 func (c *Number) SetOnChange(listener ChangeListener) {
-	c.engine.registerFormEvent(c.input.Type, c.input.Id, c.input, func(ctx *RuntimeContext) { listener(ctx) })
+	c.engine.registerFormEvent(c.input.Type, c.input.Id, inputs.Change, c.input, func(ctx *RuntimeContext) { listener(ctx) })
 }
 
 func (c *Checkbox) SetOnChange(listener ChangeListener) {
-	c.engine.registerFormEvent(c.input.Type, c.input.Id, c.input, func(ctx *RuntimeContext) { listener(ctx) })
+	c.engine.registerFormEvent(c.input.Type, c.input.Id, inputs.Change, c.input, func(ctx *RuntimeContext) { listener(ctx) })
 }
 
 func (c *Search) SetOnChange(listener ChangeListener) {
-	c.engine.registerFormEvent(c.input.Type, c.input.Id, c.input, func(ctx *RuntimeContext) { listener(ctx) })
+	c.engine.registerFormEvent(c.input.Type, c.input.Id, inputs.Change, c.input, func(ctx *RuntimeContext) { listener(ctx) })
 }
 
 func (c *Textarea) SetOnChange(listener ChangeListener) {
-	c.engine.registerFormEvent(c.input.Type, c.input.Id, c.input, func(ctx *RuntimeContext) { listener(ctx) })
+	c.engine.registerFormEvent(c.input.Type, c.input.Id, inputs.Change, c.input, func(ctx *RuntimeContext) { listener(ctx) })
 }
 
 func (c *File) SetOnChange(listener ChangeListener) {
-	c.engine.registerFormEvent(c.input.Type, c.input.Id, c.input, func(ctx *RuntimeContext) { listener(ctx) })
+	c.engine.registerFormEvent(c.input.Type, c.input.Id, inputs.Change, c.input, func(ctx *RuntimeContext) { listener(ctx) })
 }
 
 func (c *Button) SetOnClick(listener ClickListener) {
-	c.engine.registerFormEvent(c.input.Type, c.input.Id, c.input, func(ctx *RuntimeContext) { listener(ctx) })
+	c.engine.registerFormEvent(c.input.Type, c.input.Id, inputs.Click, c.input, func(ctx *RuntimeContext) { listener(ctx) })
 }
 
 func newSelect(engine *FormEngine, input *inputs.Input) *Select {

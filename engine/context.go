@@ -23,10 +23,12 @@ type RuntimeContext struct {
 	User       User
 	System     SystemKeys
 	Params     Params
-	State      map[string]any
+	FormState  *inputs.FormState
+	Sender     *inputs.ElementState
 	Mutations  []Mutation
 	Navigation []NavigationItem
 	formRoot   *inputs.Container
+	err        error
 }
 
 // BuildContext creates a build-only context from a request snapshot.
@@ -48,6 +50,5 @@ func (r *RequestContext) RuntimeContext() *RuntimeContext {
 		User:   r.User,
 		System: r.System,
 		Params: params,
-		State:  map[string]any{},
 	}
 }

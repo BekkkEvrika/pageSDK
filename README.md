@@ -7,6 +7,10 @@ go mod tidy
 go run main.go
 ```
 
+## Клиентский протокол
+
+- [Client Event Protocol](docs/client-events.md) — как frontend получает DSL, вызывает event routes и применяет mutations/navigation.
+
 ---
 
 ## Архитектура
@@ -122,7 +126,8 @@ type RuntimeContext struct {
     User       User
     System     SystemKeys
     Params     Params
-    State      map[string]any
+    FormState  *inputs.FormState
+    Sender     *inputs.ElementState
     Mutations  []Mutation
     Navigation []NavigationItem
 }
@@ -130,15 +135,39 @@ type RuntimeContext struct {
 - `BuildContext` доступен только в `Init()` и не содержит mutation/navigation APIs
 - `RuntimeContext` доступен только в event handlers
 - Backend не делает diff: все изменения идут только через explicit `RuntimeContext` operations
+- Runtime handlers получают существующие controls через `ctx.GetTextById`, `ctx.GetButtonById` и похожие методы. Если элемента нет в DSL или тип не совпадает, event request завершается ошибкой.
+- Runtime control заполняется данными, пришедшими от frontend: `control.Value`, `control.Props` и `control.Element()` доступны внутри handler.
+- Runtime controls не имеют `SetOnClick`/`SetOnChange`: обработчики назначаются только во время `Init()`.
 
 ### Runtime mutations
 ```go
 func OnSave(ctx *engine.RuntimeContext) {
-    ctx.Text("title").SetText("Saved")
-    ctx.SetState("loading", false)
-    ctx.Form().Add(ctx.Text("dynamic_text"))
+    title, err := ctx.GetTextById("title")
+    if err != nil {
+        return
+    }
+    loading, err := ctx.GetTextById("loading")
+    if err != nil {
+        return
+    }
+    title.SetText("Saved")
+    loading.SetValue(false)
+    ctx.Form().Add(inputs.Input{Id: "dynamic_text", Type: inputs.InputTypeText})
     ctx.Remove("old_button")
     ctx.OpenDialog("users.edit")
+}
+```
+
+`SetValue`, `SetText`, `SetVisible` пишут patch в response. `Value` читает runtime value из event payload:
+
+```go
+func OnNameChange(ctx *engine.RuntimeContext) {
+    name, err := ctx.GetTextById("name")
+    if err != nil {
+        return
+    }
+    currentValue := name.Value
+    _ = currentValue
 }
 ```
 
@@ -153,25 +182,31 @@ Mutation protocol поддерживает только `update`, `add`, `remove
 Navigation хранится отдельно от mutations: `OpenDialog`, `OpenTab`, `Close`, `CloseWithResult`.
 
 ### FormState
-Для формы state не универсальный. Frontend может прислать только конкретный state формы:
+Frontend присылает универсальный runtime state элементов формы:
 
 ```go
 type FormState struct {
-    Fields       map[string]FieldState `json:"fields,omitempty"`
+    Elements     []ElementState        `json:"elements,omitempty"`
+    Sender       *ElementState         `json:"sender,omitempty"`
+    Fields       map[string]FieldState `json:"fields,omitempty"` // legacy fallback
+    Form         *Form                 `json:"form,omitempty"`
     ActionID     string                `json:"actionId,omitempty"`
     Trigger      FormActionTrigger     `json:"trigger,omitempty"`
     ChangedField string                `json:"changedField,omitempty"`
 }
 
-type FieldState struct {
-    Value any `json:"value,omitempty"`
+type ElementState struct {
+    Input
+    Value any            `json:"value,omitempty"`
+    Props map[string]any `json:"props,omitempty"`
 }
 ```
 
-- `Fields` — значения inputs, ключ строго равен `Input.Id`
+- `Elements` — текущие элементы формы/DSL с runtime `value`
+- `Sender` — элемент, который вызвал событие
 - `ActionID` — `FormAction.ID`, например `save`
 - `Trigger` — `FormAction.Trigger`, например `click` или `change`
-- `ChangedField` — `Input.Id` поля, которое вызвало событие
+- `ChangedField` — `Input.Id` элемента, который вызвал событие
 
 ### Bootstrap flow
 ```go
@@ -236,8 +271,16 @@ func (p *MyPage) Init(ctx *engine.BuildContext) error {
 }
 
 func OnSave(ctx *engine.RuntimeContext) {
-    ctx.Text("status").SetText("Saved")
-    ctx.SetState("saved", true)
+    status, err := ctx.GetTextById("status")
+    if err != nil {
+        return
+    }
+    saved, err := ctx.GetTextById("saved")
+    if err != nil {
+        return
+    }
+    status.SetText("Saved")
+    saved.SetValue(true)
 }
 
 // 3. Создать фабрику

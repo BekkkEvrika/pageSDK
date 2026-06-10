@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/behzod/pageSDK/engine"
+	"github.com/behzod/pageSDK/logging"
 	"github.com/behzod/pageSDK/manifest"
 	"github.com/gin-gonic/gin"
 )
@@ -53,6 +54,7 @@ func (a *Application) Bootstrap(initFn InitFunc, addr string) error {
 // registerRoutes итерирует manifest и получает route metadata из sample Engine.
 // Runtime request использует свежий Engine из новой Page.
 func (a *Application) registerRoutes() {
+	a.router.Use(logging.LogMiddleware)
 	for _, entry := range a.manifest.All() {
 		entry := entry // capture
 
