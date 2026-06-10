@@ -131,7 +131,7 @@ The same payload structure is used for `click`, `change`, and future form events
       "metaKey": "",
       "format": "",
       "options": [],
-      "visibilityRules": [],
+      "visibility": true,
       "fieldActions": [],
       "fileConfig": null,
       "colSpan": 0,
@@ -205,7 +205,7 @@ type Input = {
   metaKey?: string
   format?: string
   options?: Array<{ value: unknown; label: unknown }>
-  visibilityRules?: unknown[]
+  visibility?: boolean
   fieldActions?: unknown[]
   fileConfig?: unknown
   colSpan?: number
@@ -308,7 +308,7 @@ Event response contains explicit patch mutations and navigation actions.
   "mutations": [
     {
       "type": "update",
-      "path": "controls.status.text",
+      "path": "controls.status.label",
       "value": "Saved"
     },
     {
@@ -379,7 +379,7 @@ Apply mutations in the exact order received.
 ```json
 {
   "type": "update",
-  "path": "controls.title.text",
+  "path": "controls.title.label",
   "value": "Saved"
 }
 ```
@@ -389,10 +389,9 @@ Client should resolve `path` and update that property.
 Common paths:
 
 ```text
-controls.{id}.text
 controls.{id}.label
 controls.{id}.value
-controls.{id}.visible
+controls.{id}.visibility
 ```
 
 ### add

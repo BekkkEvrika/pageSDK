@@ -88,7 +88,7 @@ func OnSave(ctx *engine.RuntimeContext) {
 	if err != nil {
 		return
 	}
-	status.SetText("Saved")
+	status.SetVisibility(!status.Element().Visibility)
 	lastAction.SetValue(ctx.Params["form.actionId"])
 }
 

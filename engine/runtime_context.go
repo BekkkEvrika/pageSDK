@@ -157,15 +157,6 @@ func (c *RuntimeControl) MarshalJSON() ([]byte, error) {
 	return json.Marshal(c.Element())
 }
 
-func (c *RuntimeControl) SetText(text string) {
-	if !c.valid() {
-		return
-	}
-	c.input.Label = text
-	c.state.Label = text
-	c.ctx.update("controls."+c.input.Id+".text", text)
-}
-
 func (c *RuntimeControl) SetLabel(label string) {
 	if !c.valid() {
 		return
@@ -184,11 +175,13 @@ func (c *RuntimeControl) SetValue(value any) {
 	c.ctx.update("controls."+c.input.Id+".value", value)
 }
 
-func (c *RuntimeControl) SetVisible(visible bool) {
+func (c *RuntimeControl) SetVisibility(visibility bool) {
 	if !c.valid() {
 		return
 	}
-	c.ctx.update("controls."+c.input.Id+".visible", visible)
+	c.input.Visibility = visibility
+	c.state.Visibility = visibility
+	c.ctx.update("controls."+c.input.Id+".visibility", visibility)
 }
 
 func (f *RuntimeForm) Add(node any) {

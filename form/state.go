@@ -68,7 +68,7 @@ func knownElementJSONKeys() []string {
 		"metaKey",
 		"format",
 		"options",
-		"visibilityRules",
+		"visibility",
 		"fieldActions",
 		"fileConfig",
 		"colSpan",

@@ -1,10 +1,38 @@
 # pageSDK — Server-Driven UI Framework
 
-## Быстрый старт
+## Установка как библиотеки
+
+```bash
+go get github.com/behzod/pageSDK
+```
+
+## Быстрый старт в своём приложении
+
+```go
+package main
+
+import (
+	pagesdk "github.com/behzod/pageSDK"
+	"github.com/behzod/pageSDK/page"
+)
+
+func main() {
+	application := pagesdk.New()
+	if err := application.Bootstrap(projectInitial, ":8080"); err != nil {
+		panic(err)
+	}
+}
+
+func projectInitial(a *pagesdk.Application) {
+	a.Manifest().Register("users.edit", page.NewUsersEditPage)
+}
+```
+
+## Локальный пример
 
 ```bash
 go mod tidy
-go run main.go
+go run ./cmd/pagesdk-example
 ```
 
 ## Клиентский протокол
@@ -17,7 +45,7 @@ go run main.go
 
 ```
 main()
-  └── app.New()
+  └── pagesdk.New()
   └── application.Bootstrap(projectInitial, ":8080")
         ├── projectInitial(app)        — регистрация pages в Manifest
         ├── registerRoutes()           — auto route generation из Manifest
@@ -30,6 +58,7 @@ main()
 
 ```
 pageSDK/
+├── pagesdk.go             — public library entry point
 ├── app/
 │   └── application.go     — Application: orchestrator, bootstrap, route registration
 ├── engine/
@@ -53,7 +82,8 @@ pageSDK/
 │   ├── users_list.go      — UsersListPage (TableEngine)
 │   ├── users_edit.go      — UsersEditPage (FormEngine)
 │   └── admin_roles.go     — AdminRolesPage (TableEngine)
-└── main.go                — Bootstrap entry point
+└── cmd/
+    └── pagesdk-example/   — runnable example application
 ```
 
 ---
@@ -150,7 +180,7 @@ func OnSave(ctx *engine.RuntimeContext) {
     if err != nil {
         return
     }
-    title.SetText("Saved")
+    title.SetLabel("Saved")
     loading.SetValue(false)
     ctx.Form().Add(inputs.Input{Id: "dynamic_text", Type: inputs.InputTypeText})
     ctx.Remove("old_button")
@@ -158,7 +188,7 @@ func OnSave(ctx *engine.RuntimeContext) {
 }
 ```
 
-`SetValue`, `SetText`, `SetVisible` пишут patch в response. `Value` читает runtime value из event payload:
+`SetValue`, `SetLabel` и `SetVisibility` пишут patch в response. `Value` читает runtime value из event payload:
 
 ```go
 func OnNameChange(ctx *engine.RuntimeContext) {
@@ -174,7 +204,7 @@ func OnNameChange(ctx *engine.RuntimeContext) {
 Mutation protocol поддерживает только `update`, `add`, `remove`:
 
 ```json
-{"type":"update","path":"controls.title.text","value":"Saved"}
+{"type":"update","path":"controls.title.label","value":"Saved"}
 {"type":"add","path":"form.controls","value":{"id":"dynamic_text","type":"text"}}
 {"type":"remove","path":"controls.old_button"}
 ```
@@ -279,7 +309,7 @@ func OnSave(ctx *engine.RuntimeContext) {
     if err != nil {
         return
     }
-    status.SetText("Saved")
+    status.SetLabel("Saved")
     saved.SetValue(true)
 }
 

@@ -607,8 +607,9 @@ func TestRuntimeContextExplicitOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected loading control: %v", err)
 	}
-	title.SetText("Saved")
+	title.SetLabel("Saved")
 	loading.SetValue(false)
+	loading.SetVisibility(false)
 	ctx.Form().Add(inputs.Input{Id: "dynamic_text", Type: inputs.InputTypeText})
 	ctx.Remove("old_button")
 	ctx.OpenDialog("users.edit")
@@ -616,23 +617,26 @@ func TestRuntimeContextExplicitOperations(t *testing.T) {
 	ctx.Close()
 	ctx.CloseWithResult(Params{"id": "42"})
 
-	if len(ctx.Mutations) != 4 {
+	if len(ctx.Mutations) != 5 {
 		t.Fatalf("expected explicit mutations, got %#v", ctx.Mutations)
 	}
-	if ctx.Mutations[0].Type != MutationUpdate || ctx.Mutations[0].Path != "controls.title.text" {
+	if ctx.Mutations[0].Type != MutationUpdate || ctx.Mutations[0].Path != "controls.title.label" {
 		t.Fatalf("expected title text update mutation, got %#v", ctx.Mutations[0])
 	}
 	if ctx.Mutations[1].Type != MutationUpdate || ctx.Mutations[1].Path != "controls.loading.value" {
 		t.Fatalf("expected loading value update mutation, got %#v", ctx.Mutations[1])
 	}
-	if ctx.Mutations[2].Type != MutationAdd || ctx.Mutations[2].Path != "form.controls" {
-		t.Fatalf("expected add mutation, got %#v", ctx.Mutations[2])
+	if ctx.Mutations[2].Type != MutationUpdate || ctx.Mutations[2].Path != "controls.loading.visibility" {
+		t.Fatalf("expected loading visibility update mutation, got %#v", ctx.Mutations[2])
+	}
+	if ctx.Mutations[3].Type != MutationAdd || ctx.Mutations[3].Path != "form.controls" {
+		t.Fatalf("expected add mutation, got %#v", ctx.Mutations[3])
 	}
 	if findInputByIdInContainer(&root, "dynamic_text") == nil {
 		t.Fatalf("expected add operation to update runtime tree, got %#v", root)
 	}
-	if ctx.Mutations[3].Type != MutationRemove || ctx.Mutations[3].Path != "controls.old_button" {
-		t.Fatalf("expected remove mutation, got %#v", ctx.Mutations[3])
+	if ctx.Mutations[4].Type != MutationRemove || ctx.Mutations[4].Path != "controls.old_button" {
+		t.Fatalf("expected remove mutation, got %#v", ctx.Mutations[4])
 	}
 	if len(ctx.Navigation) != 4 {
 		t.Fatalf("expected navigation actions, got %#v", ctx.Navigation)

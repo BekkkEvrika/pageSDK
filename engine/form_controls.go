@@ -67,8 +67,8 @@ func (c *FormControl) SetOptions(options inputs.ComboItems) {
 	c.input.Options = options
 }
 
-func (c *FormControl) SetVisibilityRules(rules []inputs.Rule) {
-	c.input.VisibilityRules = rules
+func (c *FormControl) SetVisibility(visibility bool) {
+	c.input.Visibility = visibility
 }
 
 func (c *FormControl) SetFieldActions(actions []inputs.FieldAction) {
