@@ -1,8 +1,8 @@
 package page
 
 import (
-	"github.com/behzod/pageSDK/engine"
-	inputs "github.com/behzod/pageSDK/form"
+	"github.com/BekkkEvrika/pageSDK/engine"
+	inputs "github.com/BekkkEvrika/pageSDK/form"
 )
 
 // UsersEditPage — page редактирования пользователя.

@@ -3,7 +3,7 @@ package engine
 import (
 	"testing"
 
-	inputs "github.com/behzod/pageSDK/form"
+	inputs "github.com/BekkkEvrika/pageSDK/form"
 )
 
 type testFormPage struct {

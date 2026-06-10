@@ -4,9 +4,9 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/behzod/pageSDK/engine"
-	"github.com/behzod/pageSDK/logging"
-	"github.com/behzod/pageSDK/manifest"
+	"github.com/BekkkEvrika/pageSDK/engine"
+	"github.com/BekkkEvrika/pageSDK/logging"
+	"github.com/BekkkEvrika/pageSDK/manifest"
 	"github.com/gin-gonic/gin"
 )
 

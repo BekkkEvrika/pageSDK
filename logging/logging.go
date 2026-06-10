@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"sync/atomic"
 
-	"github.com/behzod/pageSDK/logging/log"
+	"github.com/BekkkEvrika/pageSDK/logging/log"
 	"github.com/gin-gonic/gin"
 )
 

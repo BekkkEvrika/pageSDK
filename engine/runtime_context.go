@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	inputs "github.com/behzod/pageSDK/form"
+	inputs "github.com/BekkkEvrika/pageSDK/form"
 )
 
 type RuntimeNode interface {

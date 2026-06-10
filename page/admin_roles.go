@@ -1,7 +1,7 @@
 package page
 
 import (
-	"github.com/behzod/pageSDK/engine"
+	"github.com/BekkkEvrika/pageSDK/engine"
 )
 
 // AdminRolesPage — page управления ролями.

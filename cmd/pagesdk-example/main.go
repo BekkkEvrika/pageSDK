@@ -1,8 +1,8 @@
 package main
 
 import (
-	pagesdk "github.com/behzod/pageSDK"
-	"github.com/behzod/pageSDK/page"
+	pagesdk "github.com/BekkkEvrika/pageSDK"
+	"github.com/BekkkEvrika/pageSDK/page"
 )
 
 func main() {

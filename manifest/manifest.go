@@ -3,7 +3,7 @@ package manifest
 import (
 	"sort"
 
-	"github.com/behzod/pageSDK/engine"
+	"github.com/BekkkEvrika/pageSDK/engine"
 )
 
 // Entry — запись в манифесте для одной page.

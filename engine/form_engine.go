@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	inputs "github.com/behzod/pageSDK/form"
+	inputs "github.com/BekkkEvrika/pageSDK/form"
 )
 
 // FormEngine — движок для form-based pages.

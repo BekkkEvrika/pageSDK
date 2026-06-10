@@ -3,9 +3,9 @@
 package pagesdk
 
 import (
-	"github.com/behzod/pageSDK/app"
-	"github.com/behzod/pageSDK/engine"
-	"github.com/behzod/pageSDK/manifest"
+	"github.com/BekkkEvrika/pageSDK/app"
+	"github.com/BekkkEvrika/pageSDK/engine"
+	"github.com/BekkkEvrika/pageSDK/manifest"
 )
 
 // Application is the framework orchestrator.
