@@ -2,7 +2,8 @@ package main
 
 import (
 	pagesdk "github.com/BekkkEvrika/pageSDK"
-	"github.com/BekkkEvrika/pageSDK/page"
+	"github.com/BekkkEvrika/pageSDK/engine"
+	inputs "github.com/BekkkEvrika/pageSDK/form"
 )
 
 func main() {
@@ -13,12 +14,62 @@ func main() {
 	}
 }
 
-// projectInitial is an example project entry point.
-// It registers all pages in the application manifest.
 func projectInitial(a *pagesdk.Application) {
-	m := a.Manifest()
+	a.Manifest().Register("users.edit", NewUsersEditPage)
+}
 
-	// m.Register("users.list", page.NewUsersListPage)
-	m.Register("users.edit", page.NewUsersEditPage)
-	// m.Register("admin.roles", page.NewAdminRolesPage)
+type UsersEditPage struct {
+	*engine.FormEngine
+}
+
+func NewUsersEditPage() pagesdk.Page {
+	return &UsersEditPage{
+		FormEngine: &engine.FormEngine{},
+	}
+}
+
+func (p *UsersEditPage) Init(ctx *engine.BuildContext) error {
+	name := p.Text("name")
+	name.SetLabel("User name")
+	name.SetPlaceholder("Enter user name")
+	name.SetOnChange(onNameChange)
+
+	email := p.Text("email")
+	email.SetLabel("Email")
+	email.SetPlaceholder("user@example.com")
+
+	status := p.Text("status")
+	status.SetLabel("Status")
+	status.SetReadOnly(true)
+
+	p.Field(inputs.Input{Id: "nameChanged", Type: inputs.InputTypeCheckbox})
+	changed, err := p.GetCheckboxById("nameChanged")
+	if err != nil {
+		return err
+	}
+	changed.SetLabel("Name changed")
+	changed.SetReadOnly(true)
+
+	save := p.Button("save")
+	save.SetLabel("Save")
+	save.SetVariant("primary")
+	save.SetOnClick(onSave)
+
+	return nil
+}
+
+func onSave(ctx *engine.RuntimeContext) {
+	status, err := ctx.GetTextById("status")
+	if err != nil {
+		return
+	}
+	status.SetValue("Saved")
+}
+
+func onNameChange(ctx *engine.RuntimeContext) {
+	nameChanged, err := ctx.GetCheckboxById("nameChanged")
+	if err != nil {
+		return
+	}
+	nameChanged.SetValue(true)
 }

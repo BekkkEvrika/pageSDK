@@ -3,7 +3,7 @@
 ## Установка как библиотеки
 
 ```bash
-go get github.com/behzod/pageSDK
+go get github.com/BekkkEvrika/pageSDK
 ```
 
 ## Быстрый старт в своём приложении
@@ -12,8 +12,8 @@ go get github.com/behzod/pageSDK
 package main
 
 import (
-	pagesdk "github.com/behzod/pageSDK"
-	"github.com/behzod/pageSDK/page"
+	pagesdk "github.com/BekkkEvrika/pageSDK"
+	"github.com/BekkkEvrika/pageSDK/page"
 )
 
 func main() {
