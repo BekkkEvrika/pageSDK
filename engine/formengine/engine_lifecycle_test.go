@@ -83,6 +83,10 @@ type testFormRuntimeErrorPage struct {
 	*FormEngine
 }
 
+type testNavigationCallbackPage struct {
+	*FormEngine
+}
+
 type testTableRuntimeErrorPage struct {
 	*TableEngine
 }
@@ -103,6 +107,19 @@ func (p *testFormRuntimeErrorPage) Init(ctx *BuildContext) error {
 	save := p.Button("save")
 	save.SetOnClick(func(ctx *RuntimeContext) {
 		ctx.SetError(errors.New("form handler failed"))
+	})
+	return nil
+}
+
+func (p *testNavigationCallbackPage) Init(ctx *BuildContext) error {
+	p.Text("selected_user")
+	p.Button("pick").SetOnClick(func(ctx *RuntimeContext) {
+		ctx.OpenDialog("users.picker", OpenOptions{
+			Extra: map[string]any{
+				"group_id": 10,
+			},
+			Callback: onUserSelected,
+		})
 	})
 	return nil
 }
@@ -253,6 +270,14 @@ func testOnNameChange(ctx *RuntimeContext) {
 		return
 	}
 	changed.SetValue(true)
+}
+
+func onUserSelected(ctx *RuntimeContext) {
+	selectedUser, err := ctx.GetTextById("selected_user")
+	if err != nil {
+		return
+	}
+	selectedUser.SetValue(ctx.Extra["user_id"])
 }
 
 func TestFormRouteUsesRequestEngineInstance(t *testing.T) {
@@ -919,6 +944,66 @@ func TestDialogCallbackRouteInvokesHandlerWithActionValue(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected one-shot dialog handler to be removed")
+	}
+}
+
+func TestNavigationCallbackRouteIsGeneratedAndDispatched(t *testing.T) {
+	page := &testNavigationCallbackPage{FormEngine: &FormEngine{}}
+	var openHandler RouteHandler
+	var callbackHandler RouteHandler
+	for _, route := range page.FormEngine.Routes("test.form", page) {
+		switch route.Path {
+		case "/event/test.form/button/pick":
+			openHandler = route.Handler
+		case "/event/test.form/callback/:callback":
+			callbackHandler = route.Handler
+		}
+	}
+	if openHandler == nil {
+		t.Fatal("expected pick button event route")
+	}
+	if callbackHandler == nil {
+		t.Fatal("expected navigation callback route")
+	}
+
+	openResult, err := openHandler(&RequestContext{}, &testNavigationCallbackPage{FormEngine: &FormEngine{}})
+	if err != nil {
+		t.Fatalf("open handler returned error: %v", err)
+	}
+	runtime, ok := openResult.(*RuntimeResult)
+	if !ok {
+		t.Fatalf("expected runtime result, got %T", openResult)
+	}
+	if len(runtime.Navigation) != 1 {
+		t.Fatalf("expected one navigation action, got %#v", runtime.Navigation)
+	}
+	action := runtime.Navigation[0]
+	if action.Type != engine.NavigationOpen || action.Mode != engine.NavigationModeDialog || action.Page != "users.picker" {
+		t.Fatalf("unexpected navigation action: %#v", action)
+	}
+	if action.Extra["group_id"] != 10 {
+		t.Fatalf("expected group_id extra, got %#v", action.Extra)
+	}
+	if action.Callback != "/event/test.form/callback/on_user_selected" {
+		t.Fatalf("expected generated callback route, got %q", action.Callback)
+	}
+
+	callbackResult, err := callbackHandler(&RequestContext{
+		Params: Params{"callback": "on_user_selected"},
+		Body:   []byte(`{"user_id":77}`),
+	}, &testNavigationCallbackPage{FormEngine: &FormEngine{}})
+	if err != nil {
+		t.Fatalf("callback handler returned error: %v", err)
+	}
+	callbackRuntime, ok := callbackResult.(*RuntimeResult)
+	if !ok {
+		t.Fatalf("expected runtime result, got %T", callbackResult)
+	}
+	if len(callbackRuntime.Mutations) != 1 {
+		t.Fatalf("expected one callback mutation, got %#v", callbackRuntime.Mutations)
+	}
+	if callbackRuntime.Mutations[0].Path != "controls.selected_user.value" || callbackRuntime.Mutations[0].Value != float64(77) {
+		t.Fatalf("expected selected user mutation, got %#v", callbackRuntime.Mutations[0])
 	}
 }
 

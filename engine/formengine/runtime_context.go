@@ -18,10 +18,11 @@ type RuntimeContext struct {
 	User       engine.User
 	System     engine.SystemKeys
 	Params     engine.Params
+	Extra      map[string]any
 	FormState  *inputs.FormState
 	Sender     *inputs.ElementState
 	Mutations  []engine.Mutation
-	Navigation []engine.NavigationItem
+	Navigation []engine.NavigationAction
 	Dialogs    []engine.Dialog
 	Err        error
 	formRoot   *inputs.Container
@@ -52,6 +53,15 @@ type RuntimeTextarea struct{ RuntimeControl }
 type RuntimeHidden struct{ RuntimeControl }
 type RuntimeFile struct{ RuntimeControl }
 type RuntimeButton struct{ RuntimeControl }
+
+// NavigationCallback handles a result returned from an opened page.
+type NavigationCallback func(ctx *RuntimeContext)
+
+// OpenOptions describes frontend-owned navigation state for opening another page.
+type OpenOptions struct {
+	Extra    map[string]any
+	Callback NavigationCallback
+}
 
 func NewRuntimeContext(req *engine.RequestContext) *RuntimeContext {
 	params := req.Params
@@ -138,8 +148,22 @@ func (ctx *RuntimeContext) Remove(id string) {
 	ctx.remove("controls." + id)
 }
 
-func (ctx *RuntimeContext) OpenDialog(page string, params ...engine.Params) {
-	ctx.Navigation = append(ctx.Navigation, engine.NavigationItem{Type: engine.NavigationOpenDialog, Page: page, Params: optionalParams(params)})
+func (ctx *RuntimeContext) OpenDialog(page string, options ...any) {
+	action, err := ctx.openAction(page, engine.NavigationModeDialog, options...)
+	if err != nil {
+		ctx.fail(err)
+		return
+	}
+	ctx.Navigation = append(ctx.Navigation, action)
+}
+
+func (ctx *RuntimeContext) OpenPage(page string, options ...any) {
+	action, err := ctx.openAction(page, engine.NavigationModePage, options...)
+	if err != nil {
+		ctx.fail(err)
+		return
+	}
+	ctx.Navigation = append(ctx.Navigation, action)
 }
 
 func (ctx *RuntimeContext) ShowDialog(dialog engine.Dialog, handler ...DialogHandler) {
@@ -179,16 +203,21 @@ func (ctx *RuntimeContext) ShowOKCancel(title, description string, handler Dialo
 	})
 }
 
-func (ctx *RuntimeContext) OpenTab(page string, params ...engine.Params) {
-	ctx.Navigation = append(ctx.Navigation, engine.NavigationItem{Type: engine.NavigationOpenTab, Page: page, Params: optionalParams(params)})
+func (ctx *RuntimeContext) OpenTab(page string, options ...any) {
+	action, err := ctx.openAction(page, engine.NavigationModeTab, options...)
+	if err != nil {
+		ctx.fail(err)
+		return
+	}
+	ctx.Navigation = append(ctx.Navigation, action)
 }
 
 func (ctx *RuntimeContext) Close() {
-	ctx.Navigation = append(ctx.Navigation, engine.NavigationItem{Type: engine.NavigationClosePage})
+	ctx.Navigation = append(ctx.Navigation, engine.NavigationAction{Type: engine.NavigationClose})
 }
 
 func (ctx *RuntimeContext) CloseWithResult(result any) {
-	ctx.Navigation = append(ctx.Navigation, engine.NavigationItem{Type: engine.NavigationCloseWithResult, Result: result})
+	ctx.Navigation = append(ctx.Navigation, engine.NavigationAction{Type: engine.NavigationClose, Result: result})
 }
 
 func (ctx *RuntimeContext) SetError(err error) {
@@ -474,9 +503,47 @@ func (ctx *RuntimeContext) remove(path string) {
 	ctx.Mutations = append(ctx.Mutations, engine.Mutation{Type: engine.MutationRemove, Path: path})
 }
 
-func optionalParams(params []engine.Params) engine.Params {
-	if len(params) == 0 {
-		return nil
+func (ctx *RuntimeContext) openAction(page string, mode engine.NavigationMode, options ...any) (engine.NavigationAction, error) {
+	openOptions, err := normalizeOpenOptions(options...)
+	if err != nil {
+		return engine.NavigationAction{}, err
 	}
-	return params[0]
+	action := engine.NavigationAction{
+		Type:  engine.NavigationOpen,
+		Mode:  mode,
+		Page:  page,
+		Extra: openOptions.Extra,
+	}
+	if openOptions.Callback != nil {
+		action.Callback = registerNavigationCallback(ctx.PageKey, openOptions.Callback)
+	}
+	return action, nil
+}
+
+func normalizeOpenOptions(options ...any) (OpenOptions, error) {
+	if len(options) == 0 || options[0] == nil {
+		return OpenOptions{}, nil
+	}
+	if len(options) > 1 {
+		return OpenOptions{}, fmt.Errorf("runtime context: expected one open options argument, got %d", len(options))
+	}
+	switch option := options[0].(type) {
+	case OpenOptions:
+		return option, nil
+	case *OpenOptions:
+		if option == nil {
+			return OpenOptions{}, nil
+		}
+		return *option, nil
+	case engine.Params:
+		extra := make(map[string]any, len(option))
+		for key, value := range option {
+			extra[key] = value
+		}
+		return OpenOptions{Extra: extra}, nil
+	case map[string]any:
+		return OpenOptions{Extra: option}, nil
+	default:
+		return OpenOptions{}, fmt.Errorf("runtime context: unsupported open options type %T", option)
+	}
 }

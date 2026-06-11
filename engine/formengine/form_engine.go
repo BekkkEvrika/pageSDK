@@ -276,6 +276,11 @@ func (f *FormEngine) Routes(pageKey string, page engine.Page) []engine.RouteDefi
 		Path:    "/event/" + pageKey + "/dialog/:dialog",
 		Handler: f.handleDialogRoute(pageKey),
 	})
+	routes = append(routes, engine.RouteDefinition{
+		Method:  http.MethodPost,
+		Path:    "/event/" + pageKey + "/callback/:callback",
+		Handler: f.handleCallbackRoute(pageKey),
+	})
 	return routes
 }
 
@@ -360,6 +365,20 @@ func (f *FormEngine) handleDialogRoute(pageKey string) engine.RouteHandler {
 			ctx.Params = engine.Params{}
 		}
 		return handleDialogCallback(ctx)
+	}
+}
+
+func (f *FormEngine) handleCallbackRoute(pageKey string) engine.RouteHandler {
+	return func(ctx *engine.RequestContext, page engine.Page) (any, error) {
+		ctx.PageKey = pageKey
+		if ctx.Params == nil {
+			ctx.Params = engine.Params{}
+		}
+		engineInstance, ok := page.GetEngine().(*FormEngine)
+		if !ok {
+			return nil, fmt.Errorf("form engine: page %q returned unexpected engine %T", pageKey, page.GetEngine())
+		}
+		return engineInstance.HandleCallback(ctx, page)
 	}
 }
 

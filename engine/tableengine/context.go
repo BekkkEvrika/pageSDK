@@ -8,7 +8,7 @@ type RuntimeContext struct {
 	System     engine.SystemKeys
 	Params     engine.Params
 	Mutations  []engine.Mutation
-	Navigation []engine.NavigationItem
+	Navigation []engine.NavigationAction
 	Err        error
 }
 
@@ -50,24 +50,28 @@ func (ctx *RuntimeContext) Error() error {
 }
 
 func (ctx *RuntimeContext) OpenDialog(page string, params ...engine.Params) {
-	ctx.Navigation = append(ctx.Navigation, engine.NavigationItem{Type: engine.NavigationOpenDialog, Page: page, Params: optionalParams(params)})
+	ctx.Navigation = append(ctx.Navigation, engine.NavigationAction{Type: engine.NavigationOpen, Mode: engine.NavigationModeDialog, Page: page, Extra: optionalExtra(params)})
 }
 
 func (ctx *RuntimeContext) OpenTab(page string, params ...engine.Params) {
-	ctx.Navigation = append(ctx.Navigation, engine.NavigationItem{Type: engine.NavigationOpenTab, Page: page, Params: optionalParams(params)})
+	ctx.Navigation = append(ctx.Navigation, engine.NavigationAction{Type: engine.NavigationOpen, Mode: engine.NavigationModeTab, Page: page, Extra: optionalExtra(params)})
 }
 
 func (ctx *RuntimeContext) Close() {
-	ctx.Navigation = append(ctx.Navigation, engine.NavigationItem{Type: engine.NavigationClosePage})
+	ctx.Navigation = append(ctx.Navigation, engine.NavigationAction{Type: engine.NavigationClose})
 }
 
 func (ctx *RuntimeContext) CloseWithResult(result any) {
-	ctx.Navigation = append(ctx.Navigation, engine.NavigationItem{Type: engine.NavigationCloseWithResult, Result: result})
+	ctx.Navigation = append(ctx.Navigation, engine.NavigationAction{Type: engine.NavigationClose, Result: result})
 }
 
-func optionalParams(params []engine.Params) engine.Params {
+func optionalExtra(params []engine.Params) map[string]any {
 	if len(params) == 0 {
 		return nil
 	}
-	return params[0]
+	extra := make(map[string]any, len(params[0]))
+	for key, value := range params[0] {
+		extra[key] = value
+	}
+	return extra
 }

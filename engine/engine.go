@@ -49,8 +49,8 @@ type RenderResult struct {
 
 // RuntimeResult is returned for event requests.
 type RuntimeResult struct {
-	Mutations  []Mutation       `json:"mutations,omitempty"`
-	Navigation []NavigationItem `json:"navigation,omitempty"`
-	Dialogs    []Dialog         `json:"dialogs,omitempty"`
-	Result     any              `json:"result,omitempty"`
+	Mutations  []Mutation         `json:"mutations,omitempty"`
+	Navigation []NavigationAction `json:"navigation,omitempty"`
+	Dialogs    []Dialog           `json:"dialogs,omitempty"`
+	Result     any                `json:"result,omitempty"`
 }

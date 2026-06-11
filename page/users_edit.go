@@ -51,6 +51,17 @@ func (p *UsersEditPage) Init(ctx *engine.BuildContext) error {
 						Label: "Сохранить",
 					},
 					{
+						Id:    "pickUser",
+						Type:  inputs.InputTypeButton,
+						Label: "Выбрать пользователя",
+					},
+					{
+						Id:       "selectedUser",
+						Type:     inputs.InputTypeText,
+						Label:    "Выбранный пользователь",
+						ReadOnly: true,
+					},
+					{
 						Id:    "status",
 						Type:  inputs.InputTypeText,
 						Label: "Статус",
@@ -75,6 +86,11 @@ func (p *UsersEditPage) Init(ctx *engine.BuildContext) error {
 		return err
 	}
 	save.SetOnClick(OnSave)
+	pickUser, err := p.GetButtonById("pickUser")
+	if err != nil {
+		return err
+	}
+	pickUser.SetOnClick(OnPickUser)
 	name, err := p.GetTextById("name")
 	if err != nil {
 		return err
@@ -120,6 +136,24 @@ func OnNameChange(ctx *formengine.RuntimeContext) {
 		return
 	}
 	nameChanged.SetValue(true)
+}
+
+func OnPickUser(ctx *formengine.RuntimeContext) {
+	ctx.OpenDialog("users.picker", formengine.OpenOptions{
+		Extra: map[string]any{
+			"group_id": 10,
+		},
+		Callback: OnUserSelected,
+	})
+}
+
+func OnUserSelected(ctx *formengine.RuntimeContext) {
+	userID := ctx.Extra["user_id"]
+	selectedUser, err := ctx.GetTextById("selectedUser")
+	if err != nil {
+		return
+	}
+	selectedUser.SetValue(userID)
 }
 
 func stringValue(value any) string {
