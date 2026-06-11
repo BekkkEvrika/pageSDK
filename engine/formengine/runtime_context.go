@@ -212,6 +212,15 @@ func (c *RuntimeControl) SetValue(value any) {
 	c.ctx.update("controls."+c.input.Id+".value", value)
 }
 
+func (c *RuntimeText) SetHint(hint string) {
+	if !c.valid() {
+		return
+	}
+	c.input.Hint = hint
+	c.state.Hint = hint
+	c.ctx.update("controls."+c.input.Id+".hint", hint)
+}
+
 func (c *RuntimeControl) SetVisibility(visibility bool) {
 	if !c.valid() {
 		return

@@ -371,7 +371,7 @@ func onSave(ctx *engine.RuntimeContext) {
 - получить runtime control через `ctx.GetTextById`, `ctx.GetButtonById`, `ctx.GetCheckboxById` и другие getters;
 - прочитать текущее значение из `control.Value`;
 - прочитать полный runtime element через `control.Element()`;
-- отправить mutations через `SetValue`, `SetLabel`, `SetVisibility`, `ctx.Form().Add`, `ctx.Remove`;
+- отправить mutations через `SetValue`, `SetLabel`, `SetVisibility`, `SetHint` для text input, `ctx.Form().Add`, `ctx.Remove`;
 - отправить navigation через `ctx.OpenDialog`, `ctx.OpenTab`, `ctx.Close`, `ctx.CloseWithResult`.
 
 В handler нельзя:
