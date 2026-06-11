@@ -1,11 +1,26 @@
-package engine
+package formengine
 
 import (
 	"errors"
 	"testing"
 
+	"github.com/BekkkEvrika/pageSDK/engine"
+	"github.com/BekkkEvrika/pageSDK/engine/tableengine"
 	inputs "github.com/BekkkEvrika/pageSDK/form"
 )
+
+type BuildContext = engine.BuildContext
+type Params = engine.Params
+type RequestContext = engine.RequestContext
+type RenderResult = engine.RenderResult
+type RouteHandler = engine.RouteHandler
+type RuntimeResult = engine.RuntimeResult
+type TableDSL = tableengine.TableDSL
+type TableEngine = tableengine.TableEngine
+
+const MutationAdd = engine.MutationAdd
+const MutationRemove = engine.MutationRemove
+const MutationUpdate = engine.MutationUpdate
 
 type testFormPage struct {
 	*FormEngine
@@ -91,7 +106,7 @@ func (p *testTableRuntimeErrorPage) Init(ctx *BuildContext) error {
 	return nil
 }
 
-func (p *testTableRuntimeErrorPage) HandleEvent(ctx *RuntimeContext, event Event) error {
+func (p *testTableRuntimeErrorPage) HandleEvent(ctx *tableengine.RuntimeContext, event tableengine.Event) error {
 	ctx.SetError(errors.New("table handler failed"))
 	return nil
 }
@@ -641,14 +656,14 @@ func TestFormEngineReturnsRuntimeContextError(t *testing.T) {
 }
 
 func TestRuntimeContextExplicitOperations(t *testing.T) {
-	ctx := (&RequestContext{}).RuntimeContext()
+	ctx := NewRuntimeContext(&RequestContext{})
 	root := newRootContainer()
 	root.Fields = []inputs.Input{
 		{Id: "title", Type: inputs.InputTypeText},
 		{Id: "loading", Type: inputs.InputTypeText},
 		{Id: "old_button", Type: inputs.InputTypeButton},
 	}
-	ctx.bindFormTree(&root)
+	ctx.BindFormTree(&root)
 
 	title, err := ctx.GetTextById("title")
 	if err != nil {
@@ -683,7 +698,7 @@ func TestRuntimeContextExplicitOperations(t *testing.T) {
 	if ctx.Mutations[3].Type != MutationAdd || ctx.Mutations[3].Path != "form.controls" {
 		t.Fatalf("expected add mutation, got %#v", ctx.Mutations[3])
 	}
-	if findInputByIdInContainer(&root, "dynamic_text") == nil {
+	if !rootHasField(&root, "dynamic_text") {
 		t.Fatalf("expected add operation to update runtime tree, got %#v", root)
 	}
 	if ctx.Mutations[4].Type != MutationRemove || ctx.Mutations[4].Path != "controls.old_button" {
@@ -692,6 +707,15 @@ func TestRuntimeContextExplicitOperations(t *testing.T) {
 	if len(ctx.Navigation) != 4 {
 		t.Fatalf("expected navigation actions, got %#v", ctx.Navigation)
 	}
+}
+
+func rootHasField(root *inputs.Container, id string) bool {
+	for i := range root.Fields {
+		if root.Fields[i].Id == id {
+			return true
+		}
+	}
+	return false
 }
 
 func TestTableRouteUsesRequestEngineInstance(t *testing.T) {

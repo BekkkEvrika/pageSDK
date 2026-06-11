@@ -1,7 +1,5 @@
 package engine
 
-import inputs "github.com/BekkkEvrika/pageSDK/form"
-
 // User contains authenticated user claims available to build and runtime code.
 type User map[string]any
 
@@ -18,37 +16,11 @@ type BuildContext struct {
 	Params Params
 }
 
-// RuntimeContext is used only by event handlers.
-type RuntimeContext struct {
-	User       User
-	System     SystemKeys
-	Params     Params
-	FormState  *inputs.FormState
-	Sender     *inputs.ElementState
-	Mutations  []Mutation
-	Navigation []NavigationItem
-	Err        error
-	formRoot   *inputs.Container
-}
-
 // BuildContext creates a build-only context from a request snapshot.
 func (r *RequestContext) BuildContext() *BuildContext {
 	return &BuildContext{
 		User:   r.User,
 		System: r.System,
 		Params: r.Params,
-	}
-}
-
-// RuntimeContext creates a runtime context with explicit mutation/navigation writers.
-func (r *RequestContext) RuntimeContext() *RuntimeContext {
-	params := r.Params
-	if params == nil {
-		params = Params{}
-	}
-	return &RuntimeContext{
-		User:   r.User,
-		System: r.System,
-		Params: params,
 	}
 }

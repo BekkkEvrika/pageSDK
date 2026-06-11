@@ -1,4 +1,4 @@
-package engine
+package formengine
 
 import (
 	"encoding/json"
@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/BekkkEvrika/pageSDK/engine"
 	inputs "github.com/BekkkEvrika/pageSDK/form"
 )
 
@@ -247,14 +248,14 @@ func (f *FormEngine) ID() string {
 
 // Routes возвращает static routes для form page.
 // Вызывается один раз во время Bootstrap после Init() sample page.
-func (f *FormEngine) Routes(pageKey string, page Page) []RouteDefinition {
+func (f *FormEngine) Routes(pageKey string, page engine.Page) []engine.RouteDefinition {
 	if page != nil {
-		if err := page.Init(&BuildContext{}); err != nil {
+		if err := page.Init(&engine.BuildContext{}); err != nil {
 			panic("form engine: init page " + pageKey + ": " + err.Error())
 		}
 	}
 
-	routes := []RouteDefinition{
+	routes := []engine.RouteDefinition{
 		{
 			Method:  http.MethodGet,
 			Path:    "/page/" + pageKey,
@@ -264,7 +265,7 @@ func (f *FormEngine) Routes(pageKey string, page Page) []RouteDefinition {
 	f.generateEventRoutes(pageKey)
 	for _, route := range f.eventRoutes {
 		eventKey := route.Key
-		routes = append(routes, RouteDefinition{
+		routes = append(routes, engine.RouteDefinition{
 			Method:  route.Method,
 			Path:    route.Path,
 			Handler: f.handleRoute(pageKey, eventKey),
@@ -274,13 +275,13 @@ func (f *FormEngine) Routes(pageKey string, page Page) []RouteDefinition {
 }
 
 // Render создаёт DSL формы.
-func (f *FormEngine) Render(ctx *RequestContext, page Page) (*RenderResult, error) {
+func (f *FormEngine) Render(ctx *engine.RequestContext, page engine.Page) (*engine.RenderResult, error) {
 	if err := page.Init(ctx.BuildContext()); err != nil {
 		return nil, err
 	}
 	f.bindFormActionRoutes(ctx.PageKey)
 
-	return &RenderResult{
+	return &engine.RenderResult{
 		PageKey: ctx.PageKey,
 		Engine:  f.ID(),
 		DSL:     f.DSL(),
@@ -288,7 +289,7 @@ func (f *FormEngine) Render(ctx *RequestContext, page Page) (*RenderResult, erro
 }
 
 // Handle обрабатывает runtime events формы.
-func (f *FormEngine) Handle(ctx *RequestContext, page Page) (*RuntimeResult, error) {
+func (f *FormEngine) Handle(ctx *engine.RequestContext, page engine.Page) (*engine.RuntimeResult, error) {
 	if err := page.Init(ctx.BuildContext()); err != nil {
 		return nil, err
 	}
@@ -297,10 +298,10 @@ func (f *FormEngine) Handle(ctx *RequestContext, page Page) (*RuntimeResult, err
 	if err != nil {
 		return nil, err
 	}
-	runtimeCtx := ctx.RuntimeContext()
+	runtimeCtx := NewRuntimeContext(ctx)
 	runtimeCtx.FormState = state
 	runtimeCtx.Sender = state.Sender
-	runtimeCtx.bindFormTree(&f.root)
+	runtimeCtx.BindFormTree(&f.root)
 	runtimeCtx.Params["form.actionId"] = state.ActionID
 	handler := f.handler(formEventKey{
 		Component: ctx.Params["component"],
@@ -314,7 +315,7 @@ func (f *FormEngine) Handle(ctx *RequestContext, page Page) (*RuntimeResult, err
 		return nil, err
 	}
 
-	return &RuntimeResult{
+	return &engine.RuntimeResult{
 		Mutations:  runtimeCtx.Mutations,
 		Navigation: runtimeCtx.Navigation,
 	}, nil
@@ -322,22 +323,22 @@ func (f *FormEngine) Handle(ctx *RequestContext, page Page) (*RuntimeResult, err
 
 // GetEngine реализует Page interface — возвращает себя как Engine.
 // Встраивается в конкретные page structs через embedding.
-func (f *FormEngine) GetEngine() Engine {
+func (f *FormEngine) GetEngine() engine.Engine {
 	return f
 }
 
-func (f *FormEngine) renderRoute(pageKey string) RouteHandler {
-	return func(ctx *RequestContext, page Page) (any, error) {
+func (f *FormEngine) renderRoute(pageKey string) engine.RouteHandler {
+	return func(ctx *engine.RequestContext, page engine.Page) (any, error) {
 		ctx.PageKey = pageKey
 		return page.GetEngine().Render(ctx, page)
 	}
 }
 
-func (f *FormEngine) handleRoute(pageKey string, eventKey formEventKey) RouteHandler {
-	return func(ctx *RequestContext, page Page) (any, error) {
+func (f *FormEngine) handleRoute(pageKey string, eventKey formEventKey) engine.RouteHandler {
+	return func(ctx *engine.RequestContext, page engine.Page) (any, error) {
 		ctx.PageKey = pageKey
 		if ctx.Params == nil {
-			ctx.Params = Params{}
+			ctx.Params = engine.Params{}
 		}
 		ctx.Params["component"] = eventKey.Component
 		ctx.Params["action"] = eventKey.Action
@@ -563,7 +564,7 @@ func findInputByIdInContainers(containers []inputs.Container, id string) *inputs
 	return nil
 }
 
-func formState(ctx *RequestContext) (*inputs.FormState, error) {
+func formState(ctx *engine.RequestContext) (*inputs.FormState, error) {
 	state := &inputs.FormState{}
 	if len(ctx.Body) > 0 {
 		if err := json.Unmarshal(ctx.Body, state); err != nil {

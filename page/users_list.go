@@ -2,18 +2,19 @@ package page
 
 import (
 	"github.com/BekkkEvrika/pageSDK/engine"
+	"github.com/BekkkEvrika/pageSDK/engine/tableengine"
 )
 
 // UsersListPage — page списка пользователей.
 // Использует TableEngine: GET /page/users.list
 type UsersListPage struct {
-	*engine.TableEngine
+	*tableengine.TableEngine
 }
 
 // NewUsersListPage — фабрика для регистрации в Manifest.
 func NewUsersListPage() engine.Page {
 	return &UsersListPage{
-		TableEngine: &engine.TableEngine{},
+		TableEngine: &tableengine.TableEngine{},
 	}
 }
 

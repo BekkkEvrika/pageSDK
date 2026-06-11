@@ -5,23 +5,24 @@ import (
 	"strings"
 
 	"github.com/BekkkEvrika/pageSDK/engine"
+	"github.com/BekkkEvrika/pageSDK/engine/formengine"
 	inputs "github.com/BekkkEvrika/pageSDK/form"
 )
 
 // UsersEditPage — page редактирования пользователя.
 // Stateless: создаётся на каждый request, уничтожается после ответа.
 //
-// Embedding *engine.FormEngine даёт:
+// Embedding *formengine.FormEngine даёт:
 //   - реализацию GetEngine() — Application знает какой движок использовать
 //   - routing semantics FormEngine (GET /page/{key}, static POST event routes)
 type UsersEditPage struct {
-	*engine.FormEngine
+	*formengine.FormEngine
 }
 
 // NewUsersEditPage — фабрика для регистрации в Manifest.
 func NewUsersEditPage() engine.Page {
 	return &UsersEditPage{
-		FormEngine: &engine.FormEngine{},
+		FormEngine: &formengine.FormEngine{},
 	}
 }
 
@@ -82,7 +83,7 @@ func (p *UsersEditPage) Init(ctx *engine.BuildContext) error {
 	return nil
 }
 
-func OnSave(ctx *engine.RuntimeContext) {
+func OnSave(ctx *formengine.RuntimeContext) {
 	name, err := ctx.GetTextById("name")
 	if err != nil {
 		return
@@ -113,7 +114,7 @@ func OnSave(ctx *engine.RuntimeContext) {
 	lastAction.SetValue(ctx.Params["form.actionId"])
 }
 
-func OnNameChange(ctx *engine.RuntimeContext) {
+func OnNameChange(ctx *formengine.RuntimeContext) {
 	nameChanged, err := ctx.GetCheckboxById("nameChanged")
 	if err != nil {
 		return

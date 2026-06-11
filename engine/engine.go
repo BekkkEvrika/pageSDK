@@ -40,18 +40,6 @@ type RouteDefinition struct {
 // со свежим Page instance на каждый request.
 type RouteHandler func(ctx *RequestContext, page Page) (any, error)
 
-// Event describes an explicit frontend runtime event routed to a page.
-type Event struct {
-	Component string
-	Action    string
-	Payload   any
-}
-
-// EventHandler can be implemented by pages that support runtime events.
-type EventHandler interface {
-	HandleEvent(ctx *RuntimeContext, event Event) error
-}
-
 // RenderResult is returned for DSL requests.
 type RenderResult struct {
 	PageKey string `json:"pageKey"`

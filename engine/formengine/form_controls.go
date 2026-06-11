@@ -1,6 +1,8 @@
-package engine
+package formengine
 
-import inputs "github.com/BekkkEvrika/pageSDK/form"
+import (
+	inputs "github.com/BekkkEvrika/pageSDK/form"
+)
 
 type ClickListener func(ctx *RuntimeContext)
 type ChangeListener func(ctx *RuntimeContext)

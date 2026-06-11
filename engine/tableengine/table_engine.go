@@ -1,7 +1,9 @@
-package engine
+package tableengine
 
 import (
 	"net/http"
+
+	"github.com/BekkkEvrika/pageSDK/engine"
 )
 
 // TableEngine — движок для table/list pages.
@@ -45,8 +47,8 @@ func (t *TableEngine) ID() string {
 }
 
 // Routes возвращает routes для table page.
-func (t *TableEngine) Routes(pageKey string, page Page) []RouteDefinition {
-	return []RouteDefinition{
+func (t *TableEngine) Routes(pageKey string, page engine.Page) []engine.RouteDefinition {
+	return []engine.RouteDefinition{
 		{
 			Method:  http.MethodGet,
 			Path:    "/page/" + pageKey,
@@ -61,12 +63,12 @@ func (t *TableEngine) Routes(pageKey string, page Page) []RouteDefinition {
 }
 
 // Render создаёт DSL таблицы.
-func (t *TableEngine) Render(ctx *RequestContext, page Page) (*RenderResult, error) {
+func (t *TableEngine) Render(ctx *engine.RequestContext, page engine.Page) (*engine.RenderResult, error) {
 	if err := page.Init(ctx.BuildContext()); err != nil {
 		return nil, err
 	}
 
-	return &RenderResult{
+	return &engine.RenderResult{
 		PageKey: ctx.PageKey,
 		Engine:  t.ID(),
 		DSL:     t.DSL(),
@@ -74,12 +76,12 @@ func (t *TableEngine) Render(ctx *RequestContext, page Page) (*RenderResult, err
 }
 
 // Handle обрабатывает runtime events таблицы.
-func (t *TableEngine) Handle(ctx *RequestContext, page Page) (*RuntimeResult, error) {
+func (t *TableEngine) Handle(ctx *engine.RequestContext, page engine.Page) (*engine.RuntimeResult, error) {
 	if err := page.Init(ctx.BuildContext()); err != nil {
 		return nil, err
 	}
 
-	runtimeCtx := ctx.RuntimeContext()
+	runtimeCtx := NewRuntimeContext(ctx)
 	handler, ok := page.(EventHandler)
 	if ok {
 		event := Event{
@@ -94,26 +96,26 @@ func (t *TableEngine) Handle(ctx *RequestContext, page Page) (*RuntimeResult, er
 		}
 	}
 
-	return &RuntimeResult{
+	return &engine.RuntimeResult{
 		Mutations:  runtimeCtx.Mutations,
 		Navigation: runtimeCtx.Navigation,
 	}, nil
 }
 
 // GetEngine реализует Page interface через embedding.
-func (t *TableEngine) GetEngine() Engine {
+func (t *TableEngine) GetEngine() engine.Engine {
 	return t
 }
 
-func (t *TableEngine) renderRoute(pageKey string) RouteHandler {
-	return func(ctx *RequestContext, page Page) (any, error) {
+func (t *TableEngine) renderRoute(pageKey string) engine.RouteHandler {
+	return func(ctx *engine.RequestContext, page engine.Page) (any, error) {
 		ctx.PageKey = pageKey
 		return page.GetEngine().Render(ctx, page)
 	}
 }
 
-func (t *TableEngine) handleRoute(pageKey string) RouteHandler {
-	return func(ctx *RequestContext, page Page) (any, error) {
+func (t *TableEngine) handleRoute(pageKey string) engine.RouteHandler {
+	return func(ctx *engine.RequestContext, page engine.Page) (any, error) {
 		ctx.PageKey = pageKey
 		return page.GetEngine().Handle(ctx, page)
 	}

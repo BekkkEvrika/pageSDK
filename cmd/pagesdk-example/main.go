@@ -3,6 +3,7 @@ package main
 import (
 	pagesdk "github.com/BekkkEvrika/pageSDK"
 	"github.com/BekkkEvrika/pageSDK/engine"
+	"github.com/BekkkEvrika/pageSDK/engine/formengine"
 	inputs "github.com/BekkkEvrika/pageSDK/form"
 )
 
@@ -19,12 +20,12 @@ func projectInitial(a *pagesdk.Application) {
 }
 
 type UsersEditPage struct {
-	*engine.FormEngine
+	*formengine.FormEngine
 }
 
 func NewUsersEditPage() pagesdk.Page {
 	return &UsersEditPage{
-		FormEngine: &engine.FormEngine{},
+		FormEngine: &formengine.FormEngine{},
 	}
 }
 
@@ -58,7 +59,7 @@ func (p *UsersEditPage) Init(ctx *engine.BuildContext) error {
 	return nil
 }
 
-func onSave(ctx *engine.RuntimeContext) {
+func onSave(ctx *formengine.RuntimeContext) {
 	status, err := ctx.GetTextById("status")
 	if err != nil {
 		return
@@ -66,7 +67,7 @@ func onSave(ctx *engine.RuntimeContext) {
 	status.SetValue("Saved")
 }
 
-func onNameChange(ctx *engine.RuntimeContext) {
+func onNameChange(ctx *formengine.RuntimeContext) {
 	nameChanged, err := ctx.GetCheckboxById("nameChanged")
 	if err != nil {
 		return

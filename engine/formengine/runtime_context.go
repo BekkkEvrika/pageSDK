@@ -1,14 +1,28 @@
-package engine
+package formengine
 
 import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/BekkkEvrika/pageSDK/engine"
 	inputs "github.com/BekkkEvrika/pageSDK/form"
 )
 
 type RuntimeNode interface {
 	DSL() any
+}
+
+// RuntimeContext is used only by FormEngine event handlers.
+type RuntimeContext struct {
+	User       engine.User
+	System     engine.SystemKeys
+	Params     engine.Params
+	FormState  *inputs.FormState
+	Sender     *inputs.ElementState
+	Mutations  []engine.Mutation
+	Navigation []engine.NavigationItem
+	Err        error
+	formRoot   *inputs.Container
 }
 
 type RuntimeControl struct {
@@ -36,6 +50,18 @@ type RuntimeTextarea struct{ RuntimeControl }
 type RuntimeHidden struct{ RuntimeControl }
 type RuntimeFile struct{ RuntimeControl }
 type RuntimeButton struct{ RuntimeControl }
+
+func NewRuntimeContext(req *engine.RequestContext) *RuntimeContext {
+	params := req.Params
+	if params == nil {
+		params = engine.Params{}
+	}
+	return &RuntimeContext{
+		User:   req.User,
+		System: req.System,
+		Params: params,
+	}
+}
 
 func (ctx *RuntimeContext) Form() *RuntimeForm {
 	return &RuntimeForm{ctx: ctx}
@@ -109,20 +135,20 @@ func (ctx *RuntimeContext) Remove(id string) {
 	ctx.remove("controls." + id)
 }
 
-func (ctx *RuntimeContext) OpenDialog(page string, params ...Params) {
-	ctx.Navigation = append(ctx.Navigation, NavigationItem{Type: NavigationOpenDialog, Page: page, Params: optionalParams(params)})
+func (ctx *RuntimeContext) OpenDialog(page string, params ...engine.Params) {
+	ctx.Navigation = append(ctx.Navigation, engine.NavigationItem{Type: engine.NavigationOpenDialog, Page: page, Params: optionalParams(params)})
 }
 
-func (ctx *RuntimeContext) OpenTab(page string, params ...Params) {
-	ctx.Navigation = append(ctx.Navigation, NavigationItem{Type: NavigationOpenTab, Page: page, Params: optionalParams(params)})
+func (ctx *RuntimeContext) OpenTab(page string, params ...engine.Params) {
+	ctx.Navigation = append(ctx.Navigation, engine.NavigationItem{Type: engine.NavigationOpenTab, Page: page, Params: optionalParams(params)})
 }
 
 func (ctx *RuntimeContext) Close() {
-	ctx.Navigation = append(ctx.Navigation, NavigationItem{Type: NavigationClosePage})
+	ctx.Navigation = append(ctx.Navigation, engine.NavigationItem{Type: engine.NavigationClosePage})
 }
 
 func (ctx *RuntimeContext) CloseWithResult(result any) {
-	ctx.Navigation = append(ctx.Navigation, NavigationItem{Type: NavigationCloseWithResult, Result: result})
+	ctx.Navigation = append(ctx.Navigation, engine.NavigationItem{Type: engine.NavigationCloseWithResult, Result: result})
 }
 
 func (ctx *RuntimeContext) SetError(err error) {
@@ -216,7 +242,7 @@ func runtimeValue(value any) any {
 	return value
 }
 
-func (ctx *RuntimeContext) bindFormTree(root *inputs.Container) {
+func (ctx *RuntimeContext) BindFormTree(root *inputs.Container) {
 	ctx.formRoot = root
 }
 
@@ -336,18 +362,18 @@ func mergeRuntimeElementState(input *inputs.Input, state inputs.ElementState) in
 }
 
 func (ctx *RuntimeContext) update(path string, value any) {
-	ctx.Mutations = append(ctx.Mutations, Mutation{Type: MutationUpdate, Path: path, Value: value})
+	ctx.Mutations = append(ctx.Mutations, engine.Mutation{Type: engine.MutationUpdate, Path: path, Value: value})
 }
 
 func (ctx *RuntimeContext) add(path string, value any) {
-	ctx.Mutations = append(ctx.Mutations, Mutation{Type: MutationAdd, Path: path, Value: value})
+	ctx.Mutations = append(ctx.Mutations, engine.Mutation{Type: engine.MutationAdd, Path: path, Value: value})
 }
 
 func (ctx *RuntimeContext) remove(path string) {
-	ctx.Mutations = append(ctx.Mutations, Mutation{Type: MutationRemove, Path: path})
+	ctx.Mutations = append(ctx.Mutations, engine.Mutation{Type: engine.MutationRemove, Path: path})
 }
 
-func optionalParams(params []Params) Params {
+func optionalParams(params []engine.Params) engine.Params {
 	if len(params) == 0 {
 		return nil
 	}

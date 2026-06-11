@@ -2,18 +2,19 @@ package page
 
 import (
 	"github.com/BekkkEvrika/pageSDK/engine"
+	"github.com/BekkkEvrika/pageSDK/engine/tableengine"
 )
 
 // AdminRolesPage — page управления ролями.
 // Использует TableEngine: GET /page/admin.roles
 type AdminRolesPage struct {
-	*engine.TableEngine
+	*tableengine.TableEngine
 }
 
 // NewAdminRolesPage — фабрика для регистрации в Manifest.
 func NewAdminRolesPage() engine.Page {
 	return &AdminRolesPage{
-		TableEngine: &engine.TableEngine{},
+		TableEngine: &tableengine.TableEngine{},
 	}
 }
 
