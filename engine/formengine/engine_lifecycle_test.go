@@ -3,6 +3,7 @@ package formengine
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -425,6 +426,18 @@ func TestFormEngineGetsTypedInputsByID(t *testing.T) {
 	}
 	if nested.Input().Id != "nestedName" {
 		t.Fatalf("expected nested text input nestedName, got %#v", nested)
+	}
+}
+
+func TestLabelExposesOnlyLabelSpecificMutators(t *testing.T) {
+	if _, ok := reflect.TypeOf(&Label{}).MethodByName("SetDefaultValue"); ok {
+		t.Fatal("label must not expose SetDefaultValue")
+	}
+	if _, ok := reflect.TypeOf(&RuntimeLabel{}).MethodByName("SetValue"); ok {
+		t.Fatal("runtime label must not expose SetValue")
+	}
+	if got := defaultRuntimeValue(&inputs.Input{Id: "label", Type: inputs.InputTypeLabel}); got != nil {
+		t.Fatalf("expected label to have no runtime value, got %#v", got)
 	}
 }
 

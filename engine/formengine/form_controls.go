@@ -111,7 +111,9 @@ type Datetime struct{ FormControl }
 type Text struct{ FormControl }
 type Number struct{ FormControl }
 type Checkbox struct{ FormControl }
-type Label struct{ FormControl }
+type Label struct {
+	control FormControl
+}
 type Search struct{ FormControl }
 type Textarea struct{ FormControl }
 type Hidden struct{ FormControl }
@@ -158,6 +160,14 @@ func (c *Button) SetOnClick(listener ClickListener) {
 	c.engine.registerFormEvent(c.input.Type, c.input.Id, inputs.Click, c.input, func(ctx *RuntimeContext) { listener(ctx) })
 }
 
+func (c *Label) Input() *inputs.Input {
+	return c.control.Input()
+}
+
+func (c *Label) SetLabel(label string) {
+	c.control.SetLabel(label)
+}
+
 func newSelect(engine *FormEngine, input *inputs.Input) *Select {
 	return &Select{FormControl: newFormControl(engine, input)}
 }
@@ -183,7 +193,7 @@ func newCheckbox(engine *FormEngine, input *inputs.Input) *Checkbox {
 }
 
 func newLabel(engine *FormEngine, input *inputs.Input) *Label {
-	return &Label{FormControl: newFormControl(engine, input)}
+	return &Label{control: newFormControl(engine, input)}
 }
 
 func newSearch(engine *FormEngine, input *inputs.Input) *Search {

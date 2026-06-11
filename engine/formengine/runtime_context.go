@@ -47,7 +47,9 @@ type RuntimeDatetime struct{ RuntimeControl }
 type RuntimeText struct{ RuntimeControl }
 type RuntimeNumber struct{ RuntimeControl }
 type RuntimeCheckbox struct{ RuntimeControl }
-type RuntimeLabel struct{ RuntimeControl }
+type RuntimeLabel struct {
+	control RuntimeControl
+}
 type RuntimeSearch struct{ RuntimeControl }
 type RuntimeTextarea struct{ RuntimeControl }
 type RuntimeHidden struct{ RuntimeControl }
@@ -112,7 +114,7 @@ func (ctx *RuntimeContext) GetCheckboxById(id string) (*RuntimeCheckbox, error) 
 
 func (ctx *RuntimeContext) GetLabelById(id string) (*RuntimeLabel, error) {
 	control, err := ctx.runtimeControlByIdAndType(id, inputs.InputTypeLabel)
-	return &RuntimeLabel{RuntimeControl: *control}, err
+	return &RuntimeLabel{control: *control}, err
 }
 
 func (ctx *RuntimeContext) GetSearchById(id string) (*RuntimeSearch, error) {
@@ -279,6 +281,28 @@ func (c *RuntimeControl) SetValue(value any) {
 	c.Value = value
 	c.state.Value = value
 	c.ctx.update("controls."+c.input.Id+".value", value)
+}
+
+func (c *RuntimeLabel) DSL() any {
+	return c.control.DSL()
+}
+
+func (c *RuntimeLabel) Input() *inputs.Input {
+	return c.control.Input()
+}
+
+func (c *RuntimeLabel) Element() inputs.ElementState {
+	element := c.control.Element()
+	element.Value = nil
+	return element
+}
+
+func (c *RuntimeLabel) MarshalJSON() ([]byte, error) {
+	return json.Marshal(c.Element())
+}
+
+func (c *RuntimeLabel) SetLabel(label string) {
+	c.control.SetLabel(label)
 }
 
 func (c *RuntimeText) SetHint(hint string) {
@@ -461,8 +485,7 @@ func defaultRuntimeValue(input *inputs.Input) any {
 		inputs.InputTypeTextarea,
 		inputs.InputTypeHidden,
 		inputs.InputTypeDate,
-		inputs.InputTypeDatetime,
-		inputs.InputTypeLabel:
+		inputs.InputTypeDatetime:
 		return ""
 	default:
 		return nil

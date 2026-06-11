@@ -93,18 +93,22 @@ func (a *Application) makeGinHandler(entry manifest.Entry, handler engine.RouteH
 
 func (a *Application) newRequestContext(ctx *gin.Context, pageKey string) *engine.RequestContext {
 	body, _ := io.ReadAll(ctx.Request.Body)
+	query := queryParams(ctx)
 	return &engine.RequestContext{
 		PageKey: pageKey,
-		Params:  routeParams(ctx),
-		Query:   queryParams(ctx),
+		Params:  requestParams(ctx, query),
+		Query:   query,
 		User:    engine.User{},
 		System:  engine.SystemKeys{},
 		Body:    body,
 	}
 }
 
-func routeParams(ctx *gin.Context) engine.Params {
-	params := make(engine.Params, len(ctx.Params))
+func requestParams(ctx *gin.Context, query engine.Params) engine.Params {
+	params := make(engine.Params, len(query)+len(ctx.Params))
+	for key, value := range query {
+		params[key] = value
+	}
 	for _, param := range ctx.Params {
 		params[param.Key] = param.Value
 	}
