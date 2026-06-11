@@ -271,6 +271,11 @@ func (f *FormEngine) Routes(pageKey string, page engine.Page) []engine.RouteDefi
 			Handler: f.handleRoute(pageKey, eventKey),
 		})
 	}
+	routes = append(routes, engine.RouteDefinition{
+		Method:  http.MethodPost,
+		Path:    "/event/" + pageKey + "/dialog/:dialog",
+		Handler: f.handleDialogRoute(pageKey),
+	})
 	return routes
 }
 
@@ -345,6 +350,16 @@ func (f *FormEngine) handleRoute(pageKey string, eventKey formEventKey) engine.R
 		ctx.Params["component"] = eventKey.Component
 		ctx.Params["action"] = eventKey.Action
 		return page.GetEngine().Handle(ctx, page)
+	}
+}
+
+func (f *FormEngine) handleDialogRoute(pageKey string) engine.RouteHandler {
+	return func(ctx *engine.RequestContext, page engine.Page) (any, error) {
+		ctx.PageKey = pageKey
+		if ctx.Params == nil {
+			ctx.Params = engine.Params{}
+		}
+		return handleDialogCallback(ctx)
 	}
 }
 

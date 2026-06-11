@@ -242,6 +242,7 @@ func NewUsersEditPage() engine.Page {
 ```text
 GET  /page/{pageKey}
 POST /event/{pageKey}/{component}/{actionID}
+POST /event/{pageKey}/dialog/{dialog}
 ```
 
 Например:
@@ -250,6 +251,7 @@ POST /event/{pageKey}/{component}/{actionID}
 GET  /page/users.edit
 POST /event/users.edit/button/save
 POST /event/users.edit/text/name
+POST /event/users.edit/dialog/dialog-1
 ```
 
 Routes для form events статические. Они создаются во время bootstrap из зарегистрированных listeners. Frontend не должен придумывать URL самостоятельно: он должен читать URL из `dsl.actions`.
@@ -542,8 +544,12 @@ ctx.ShowMessage("Message", "Plain message")
 ctx.ShowWarning("Warning", "Check this")
 ctx.ShowError("Error", "Something failed")
 ctx.ShowSuccess("Saved", "User was saved")
-ctx.ShowYesNo("Confirm", "Continue?")
-ctx.ShowOKCancel("Edit", "Save changes?")
+ctx.ShowYesNo("Confirm", "Continue?", func(value string) {
+	fmt.Println(value)
+})
+ctx.ShowOKCancel("Edit", "Save changes?", func(value string) {
+	fmt.Println(value)
+})
 
 ctx.ShowDialog(engine.Dialog{
 	Title:       "Custom",
@@ -553,7 +559,20 @@ ctx.ShowDialog(engine.Dialog{
 		{Name: "Retry", Value: "retry"},
 		{Name: "Ignore", Value: "ignore"},
 	},
+}, func(value string) {
+	fmt.Println(value)
 })
+```
+
+Если у dialog action есть callback, frontend отправляет нажатую кнопку в `url` этой action:
+
+```http
+POST /event/{pageKey}/dialog/{dialog}
+Content-Type: application/json
+
+{
+  "value": "yes"
+}
 ```
 
 ## TableEngine

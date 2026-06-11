@@ -3,6 +3,7 @@ package formengine
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/BekkkEvrika/pageSDK/engine"
@@ -468,6 +469,9 @@ func TestFormEngineGeneratesStaticEventRoutes(t *testing.T) {
 	if _, ok := paths["/event/test.form/text/name"]; !ok {
 		t.Fatalf("expected text event route, got %#v", paths)
 	}
+	if _, ok := paths["/event/test.form/dialog/:dialog"]; !ok {
+		t.Fatalf("expected dialog event route, got %#v", paths)
+	}
 	if _, ok := paths["/event/test.form/:component/:action"]; ok {
 		t.Fatalf("unexpected dynamic event route: %#v", paths)
 	}
@@ -825,8 +829,8 @@ func TestRuntimeContextDialogHelpers(t *testing.T) {
 	ctx.ShowWarning("Warning", "Careful")
 	ctx.ShowError("Error", "Something failed")
 	ctx.ShowSuccess("Success", "Done")
-	ctx.ShowYesNo("Confirm", "Continue?")
-	ctx.ShowOKCancel("Edit", "Save changes?")
+	ctx.ShowYesNo("Confirm", "Continue?", func(value string) {})
+	ctx.ShowOKCancel("Edit", "Save changes?", func(value string) {})
 	ctx.ShowDialog(engine.Dialog{
 		Title:       "Custom",
 		Description: "Choose custom action",
@@ -835,7 +839,7 @@ func TestRuntimeContextDialogHelpers(t *testing.T) {
 			{Name: "Retry", Value: "retry"},
 			{Name: "Ignore", Value: "ignore"},
 		},
-	})
+	}, func(value string) {})
 
 	if len(ctx.Dialogs) != 7 {
 		t.Fatalf("expected seven dialogs, got %#v", ctx.Dialogs)
@@ -863,10 +867,58 @@ func TestRuntimeContextDialogHelpers(t *testing.T) {
 			t.Fatalf("dialog %d: expected actions %#v, got %#v", test.index, test.actions, dialog.Actions)
 		}
 		for i, action := range test.actions {
-			if dialog.Actions[i] != action {
+			got := dialog.Actions[i]
+			got.URL = ""
+			got.Method = ""
+			if got != action {
 				t.Fatalf("dialog %d action %d: expected %#v, got %#v", test.index, i, action, dialog.Actions[i])
 			}
 		}
+	}
+	for _, index := range []int{4, 5, 6} {
+		for _, action := range ctx.Dialogs[index].Actions {
+			if action.URL == "" || action.Method != "POST" {
+				t.Fatalf("dialog %d: expected callback route on action, got %#v", index, action)
+			}
+		}
+	}
+}
+
+func TestDialogCallbackRouteInvokesHandlerWithActionValue(t *testing.T) {
+	var selected string
+	ctx := NewRuntimeContext(&RequestContext{PageKey: "test.form"})
+	ctx.ShowYesNo("Confirm", "Continue?", func(value string) {
+		selected = value
+	})
+	if len(ctx.Dialogs) != 1 || len(ctx.Dialogs[0].Actions) != 2 {
+		t.Fatalf("expected yes/no dialog, got %#v", ctx.Dialogs)
+	}
+	action := ctx.Dialogs[0].Actions[0]
+	if action.URL == "" {
+		t.Fatalf("expected callback URL, got %#v", action)
+	}
+
+	dialogID := strings.TrimPrefix(action.URL, "/event/test.form/dialog/")
+	result, err := handleDialogCallback(&RequestContext{
+		Params: Params{"dialog": dialogID},
+		Body:   []byte(`{"value":"yes"}`),
+	})
+	if err != nil {
+		t.Fatalf("dialog callback returned error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected runtime result")
+	}
+	if selected != "yes" {
+		t.Fatalf("expected selected value yes, got %q", selected)
+	}
+
+	_, err = handleDialogCallback(&RequestContext{
+		Params: Params{"dialog": dialogID},
+		Body:   []byte(`{"value":"yes"}`),
+	})
+	if err == nil {
+		t.Fatal("expected one-shot dialog handler to be removed")
 	}
 }
 

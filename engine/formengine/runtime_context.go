@@ -14,6 +14,7 @@ type RuntimeNode interface {
 
 // RuntimeContext is used only by FormEngine event handlers.
 type RuntimeContext struct {
+	PageKey    string
 	User       engine.User
 	System     engine.SystemKeys
 	Params     engine.Params
@@ -58,9 +59,10 @@ func NewRuntimeContext(req *engine.RequestContext) *RuntimeContext {
 		params = engine.Params{}
 	}
 	return &RuntimeContext{
-		User:   req.User,
-		System: req.System,
-		Params: params,
+		PageKey: req.PageKey,
+		User:    req.User,
+		System:  req.System,
+		Params:  params,
 	}
 }
 
@@ -140,7 +142,10 @@ func (ctx *RuntimeContext) OpenDialog(page string, params ...engine.Params) {
 	ctx.Navigation = append(ctx.Navigation, engine.NavigationItem{Type: engine.NavigationOpenDialog, Page: page, Params: optionalParams(params)})
 }
 
-func (ctx *RuntimeContext) ShowDialog(dialog engine.Dialog) {
+func (ctx *RuntimeContext) ShowDialog(dialog engine.Dialog, handler ...DialogHandler) {
+	if len(handler) > 0 {
+		dialog = bindDialogHandler(ctx.PageKey, dialog, handler[0])
+	}
 	ctx.Dialogs = append(ctx.Dialogs, dialog)
 }
 
@@ -160,15 +165,15 @@ func (ctx *RuntimeContext) ShowSuccess(title, description string) {
 	ctx.showDialog(title, description, engine.DialogSuccess, okDialogActions())
 }
 
-func (ctx *RuntimeContext) ShowYesNo(title, description string) {
-	ctx.showDialog(title, description, engine.DialogInfo, []engine.DialogAction{
+func (ctx *RuntimeContext) ShowYesNo(title, description string, handler DialogHandler) {
+	ctx.showDialogWithHandler(title, description, engine.DialogInfo, handler, []engine.DialogAction{
 		{Name: "Yes", Value: "yes"},
 		{Name: "No", Value: "no"},
 	})
 }
 
-func (ctx *RuntimeContext) ShowOKCancel(title, description string) {
-	ctx.showDialog(title, description, engine.DialogInfo, []engine.DialogAction{
+func (ctx *RuntimeContext) ShowOKCancel(title, description string, handler DialogHandler) {
+	ctx.showDialogWithHandler(title, description, engine.DialogInfo, handler, []engine.DialogAction{
 		{Name: "OK", Value: "ok"},
 		{Name: "Cancel", Value: "cancel"},
 	})
@@ -376,6 +381,15 @@ func (ctx *RuntimeContext) showDialog(title, description string, level engine.Di
 		Level:       level,
 		Actions:     actions,
 	})
+}
+
+func (ctx *RuntimeContext) showDialogWithHandler(title, description string, level engine.DialogLevel, handler DialogHandler, actions []engine.DialogAction) {
+	ctx.ShowDialog(bindDialogHandler(ctx.PageKey, engine.Dialog{
+		Title:       title,
+		Description: description,
+		Level:       level,
+		Actions:     actions,
+	}, handler))
 }
 
 func okDialogActions() []engine.DialogAction {
