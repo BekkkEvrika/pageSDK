@@ -36,7 +36,7 @@ type Input struct {
 	ColSpan      int              `json:"colSpan,omitempty"`
 	Hint         string           `json:"hint,omitempty"`
 	SearchName   string           `json:"searchObject,omitempty"`
-	DefaultValue string           `json:"defaultValue,omitempty"`
+	DefaultValue interface{}      `json:"defaultValue,omitempty"`
 	Search       string           `json:"searchSource,omitempty"`
 	DataType     string           `json:"dataType,omitempty"` //number,string,bool : default string
 }
