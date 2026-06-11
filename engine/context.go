@@ -27,8 +27,8 @@ type RuntimeContext struct {
 	Sender     *inputs.ElementState
 	Mutations  []Mutation
 	Navigation []NavigationItem
+	Err        error
 	formRoot   *inputs.Container
-	err        error
 }
 
 // BuildContext creates a build-only context from a request snapshot.

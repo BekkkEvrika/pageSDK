@@ -310,8 +310,8 @@ func (f *FormEngine) Handle(ctx *RequestContext, page Page) (*RuntimeResult, err
 		return nil, fmt.Errorf("form engine: handler for %q/%q not found", ctx.Params["component"], ctx.Params["action"])
 	}
 	handler(runtimeCtx)
-	if runtimeCtx.err != nil {
-		return nil, runtimeCtx.err
+	if err := runtimeCtx.Error(); err != nil {
+		return nil, err
 	}
 
 	return &RuntimeResult{

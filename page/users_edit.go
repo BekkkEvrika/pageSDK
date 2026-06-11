@@ -1,6 +1,9 @@
 package page
 
 import (
+	"errors"
+	"strings"
+
 	"github.com/BekkkEvrika/pageSDK/engine"
 	inputs "github.com/BekkkEvrika/pageSDK/form"
 )
@@ -80,6 +83,14 @@ func (p *UsersEditPage) Init(ctx *engine.BuildContext) error {
 }
 
 func OnSave(ctx *engine.RuntimeContext) {
+	name, err := ctx.GetTextById("name")
+	if err != nil {
+		return
+	}
+	email, err := ctx.GetTextById("email")
+	if err != nil {
+		return
+	}
 	status, err := ctx.GetTextById("status")
 	if err != nil {
 		return
@@ -88,6 +99,16 @@ func OnSave(ctx *engine.RuntimeContext) {
 	if err != nil {
 		return
 	}
+
+	if strings.TrimSpace(stringValue(name.Element().Value)) == "" {
+		ctx.SetError(errors.New("name is required"))
+		return
+	}
+	if strings.TrimSpace(stringValue(email.Element().Value)) == "" {
+		ctx.SetError(errors.New("email is required"))
+		return
+	}
+
 	status.SetVisibility(!status.Element().Visibility)
 	lastAction.SetValue(ctx.Params["form.actionId"])
 }
@@ -98,4 +119,14 @@ func OnNameChange(ctx *engine.RuntimeContext) {
 		return
 	}
 	nameChanged.SetValue(true)
+}
+
+func stringValue(value any) string {
+	if value == nil {
+		return ""
+	}
+	if text, ok := value.(string); ok {
+		return text
+	}
+	return ""
 }

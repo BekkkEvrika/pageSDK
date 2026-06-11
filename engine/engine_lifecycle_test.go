@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"testing"
 
 	inputs "github.com/BekkkEvrika/pageSDK/form"
@@ -57,6 +58,14 @@ type testMissingRuntimeControlPage struct {
 	*FormEngine
 }
 
+type testFormRuntimeErrorPage struct {
+	*FormEngine
+}
+
+type testTableRuntimeErrorPage struct {
+	*TableEngine
+}
+
 func (p *testMissingRuntimeControlPage) Init(ctx *BuildContext) error {
 	save := p.Button("save")
 	save.SetOnClick(func(ctx *RuntimeContext) {
@@ -66,6 +75,24 @@ func (p *testMissingRuntimeControlPage) Init(ctx *BuildContext) error {
 		}
 		missing.SetValue(true)
 	})
+	return nil
+}
+
+func (p *testFormRuntimeErrorPage) Init(ctx *BuildContext) error {
+	save := p.Button("save")
+	save.SetOnClick(func(ctx *RuntimeContext) {
+		ctx.SetError(errors.New("form handler failed"))
+	})
+	return nil
+}
+
+func (p *testTableRuntimeErrorPage) Init(ctx *BuildContext) error {
+	p.Column("request", "Request")
+	return nil
+}
+
+func (p *testTableRuntimeErrorPage) HandleEvent(ctx *RuntimeContext, event Event) error {
+	ctx.SetError(errors.New("table handler failed"))
 	return nil
 }
 
@@ -589,6 +616,30 @@ func TestFormEngineRuntimeMutationRequiresExistingDSLControl(t *testing.T) {
 	}
 }
 
+func TestFormEngineReturnsRuntimeContextError(t *testing.T) {
+	page := &testFormRuntimeErrorPage{FormEngine: &FormEngine{}}
+	routes := page.FormEngine.Routes("test.form", page)
+
+	var handler RouteHandler
+	for _, route := range routes {
+		if route.Path == "/event/test.form/button/save" {
+			handler = route.Handler
+			break
+		}
+	}
+	if handler == nil {
+		t.Fatal("expected button event route handler")
+	}
+
+	_, err := handler(&RequestContext{}, &testFormRuntimeErrorPage{FormEngine: &FormEngine{}})
+	if err == nil {
+		t.Fatal("expected runtime context error")
+	}
+	if got := err.Error(); got != "form handler failed" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRuntimeContextExplicitOperations(t *testing.T) {
 	ctx := (&RequestContext{}).RuntimeContext()
 	root := newRootContainer()
@@ -666,5 +717,23 @@ func TestTableRouteUsesRequestEngineInstance(t *testing.T) {
 	}
 	if bootstrapTable := bootstrapEngine.DSL().(TableDSL); len(bootstrapTable.Columns) != 0 {
 		t.Fatalf("bootstrap engine should not own request DSL: %#v", bootstrapTable)
+	}
+}
+
+func TestTableEngineReturnsRuntimeContextError(t *testing.T) {
+	page := &testTableRuntimeErrorPage{TableEngine: &TableEngine{}}
+	handler := page.TableEngine.Routes("test.table", page)[1].Handler
+
+	_, err := handler(&RequestContext{
+		Params: Params{
+			"component": "table",
+			"action":    "rowClick",
+		},
+	}, &testTableRuntimeErrorPage{TableEngine: &TableEngine{}})
+	if err == nil {
+		t.Fatal("expected runtime context error")
+	}
+	if got := err.Error(); got != "table handler failed" {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

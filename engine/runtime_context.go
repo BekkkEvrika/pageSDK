@@ -125,6 +125,17 @@ func (ctx *RuntimeContext) CloseWithResult(result any) {
 	ctx.Navigation = append(ctx.Navigation, NavigationItem{Type: NavigationCloseWithResult, Result: result})
 }
 
+func (ctx *RuntimeContext) SetError(err error) {
+	ctx.fail(err)
+}
+
+func (ctx *RuntimeContext) Error() error {
+	if ctx == nil {
+		return nil
+	}
+	return ctx.Err
+}
+
 func (c *RuntimeControl) DSL() any {
 	if c.input == nil {
 		return inputs.Input{}
@@ -283,8 +294,8 @@ func (c *RuntimeControl) valid() bool {
 }
 
 func (ctx *RuntimeContext) fail(err error) {
-	if err != nil && ctx.err == nil {
-		ctx.err = err
+	if err != nil && ctx.Err == nil {
+		ctx.Err = err
 	}
 }
 

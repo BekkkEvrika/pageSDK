@@ -89,6 +89,9 @@ func (t *TableEngine) Handle(ctx *RequestContext, page Page) (*RuntimeResult, er
 		if err := handler.HandleEvent(runtimeCtx, event); err != nil {
 			return nil, err
 		}
+		if err := runtimeCtx.Error(); err != nil {
+			return nil, err
+		}
 	}
 
 	return &RuntimeResult{
