@@ -69,6 +69,10 @@ type testFormStatePage struct {
 	*FormEngine
 }
 
+type testDefaultRuntimeValuePage struct {
+	*FormEngine
+}
+
 type testMissingRuntimeControlPage struct {
 	*FormEngine
 }
@@ -194,6 +198,40 @@ func (p *testFormStatePage) Init(ctx *BuildContext) error {
 			senderType.SetValue(ctx.Sender.Type)
 			senderValue.SetValue(ctx.Sender.Value)
 		}
+	})
+	return nil
+}
+
+func (p *testDefaultRuntimeValuePage) Init(ctx *BuildContext) error {
+	name := p.Text("name")
+	name.SetDefaultValue("guest")
+	p.Text("note")
+	p.Text("result")
+	p.Text("emptyResult")
+	p.Field(inputs.Input{Id: "enabled", Type: inputs.InputTypeCheckbox})
+	checkbox, err := p.GetCheckboxById("enabled")
+	if err != nil {
+		return err
+	}
+	checkbox.SetOnChange(func(ctx *RuntimeContext) {
+		name, err := ctx.GetTextById("name")
+		if err != nil {
+			return
+		}
+		note, err := ctx.GetTextById("note")
+		if err != nil {
+			return
+		}
+		result, err := ctx.GetTextById("result")
+		if err != nil {
+			return
+		}
+		emptyResult, err := ctx.GetTextById("emptyResult")
+		if err != nil {
+			return
+		}
+		result.SetValue(name.Value.(string))
+		emptyResult.SetValue(note.Value.(string))
 	})
 	return nil
 }
@@ -604,6 +642,51 @@ func TestFormEngineRuntimeContextReceivesFullFormState(t *testing.T) {
 		if got[path] != value {
 			t.Fatalf("expected mutation %s=%#v, got %#v", path, value, runtime.Mutations)
 		}
+	}
+}
+
+func TestRuntimeControlUsesDefaultValueWhenEventPayloadOmitsValue(t *testing.T) {
+	page := &testDefaultRuntimeValuePage{FormEngine: &FormEngine{}}
+	routes := page.FormEngine.Routes("test.form", page)
+
+	var handler RouteHandler
+	for _, route := range routes {
+		if route.Path == "/event/test.form/checkbox/enabled" {
+			handler = route.Handler
+			break
+		}
+	}
+	if handler == nil {
+		t.Fatal("expected checkbox event route handler")
+	}
+
+	body := []byte(`{
+		"elements": [
+			{"id": "name", "type": "text"},
+			{"id": "enabled", "type": "checkbox", "value": true}
+		],
+		"changedField": "enabled"
+	}`)
+	result, err := handler(&RequestContext{Body: body}, &testDefaultRuntimeValuePage{FormEngine: &FormEngine{}})
+	if err != nil {
+		t.Fatalf("route handler returned error: %v", err)
+	}
+	runtime, ok := result.(*RuntimeResult)
+	if !ok {
+		t.Fatalf("expected *RuntimeResult, got %T", result)
+	}
+	if len(runtime.Mutations) != 2 {
+		t.Fatalf("expected two mutations, got %#v", runtime.Mutations)
+	}
+	got := map[string]any{}
+	for _, mutation := range runtime.Mutations {
+		got[mutation.Path] = mutation.Value
+	}
+	if got["controls.result.value"] != "guest" {
+		t.Fatalf("expected default value mutation, got %#v", runtime.Mutations)
+	}
+	if got["controls.emptyResult.value"] != "" {
+		t.Fatalf("expected empty string fallback mutation, got %#v", runtime.Mutations)
 	}
 }
 

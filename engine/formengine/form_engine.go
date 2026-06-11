@@ -298,6 +298,7 @@ func (f *FormEngine) Handle(ctx *engine.RequestContext, page engine.Page) (*engi
 	if err != nil {
 		return nil, err
 	}
+	normalizeFormStateValues(state, &f.root)
 	runtimeCtx := NewRuntimeContext(ctx)
 	runtimeCtx.FormState = state
 	runtimeCtx.Sender = state.Sender
@@ -607,6 +608,23 @@ func normalizeFormState(state *inputs.FormState) {
 		if state.Elements[i].Id == senderID {
 			state.Sender = &state.Elements[i]
 			return
+		}
+	}
+}
+
+func normalizeFormStateValues(state *inputs.FormState, root *inputs.Container) {
+	if state == nil || root == nil {
+		return
+	}
+	for i := range state.Elements {
+		input := findInputByIdInContainer(root, state.Elements[i].Id)
+		if input != nil && state.Elements[i].Value == nil {
+			state.Elements[i].Value = defaultRuntimeValue(input)
+		}
+	}
+	if state.Sender != nil && state.Sender.Value == nil {
+		if input := findInputByIdInContainer(root, state.Sender.Id); input != nil {
+			state.Sender.Value = defaultRuntimeValue(input)
 		}
 	}
 }

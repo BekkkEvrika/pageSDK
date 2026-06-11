@@ -257,7 +257,7 @@ func (ctx *RuntimeContext) runtimeControlByIdAndType(id, inputType string) (*Run
 		ctx.fail(err)
 		return newDetachedRuntimeControl(ctx, id, inputType), err
 	}
-	control := &RuntimeControl{ctx: ctx, input: input}
+	control := &RuntimeControl{ctx: ctx, input: input, Value: defaultRuntimeValue(input)}
 	if element, ok := ctx.elementStateByID(id); ok {
 		applyRuntimeElementState(control, element)
 	}
@@ -333,10 +333,40 @@ func newDetachedRuntimeControl(ctx *RuntimeContext, id, inputType string) *Runti
 }
 
 func applyRuntimeElementState(control *RuntimeControl, element inputs.ElementState) {
+	if element.Value == nil {
+		element.Value = defaultRuntimeValue(control.input)
+	}
 	control.hasState = true
 	control.state = element
 	control.Value = element.Value
 	control.Props = element.Props
+}
+
+func defaultRuntimeValue(input *inputs.Input) any {
+	if input == nil {
+		return nil
+	}
+	if input.DefaultValue != nil {
+		return input.DefaultValue
+	}
+	switch input.Type {
+	case inputs.InputTypeCheckbox:
+		return false
+	case inputs.InputTypeNumber:
+		return 0
+	case inputs.InputTypeButton:
+		return false
+	case inputs.InputTypeText,
+		inputs.InputTypeSearch,
+		inputs.InputTypeTextarea,
+		inputs.InputTypeHidden,
+		inputs.InputTypeDate,
+		inputs.InputTypeDatetime,
+		inputs.InputTypeLabel:
+		return ""
+	default:
+		return nil
+	}
 }
 
 func mergeRuntimeElementState(input *inputs.Input, state inputs.ElementState) inputs.ElementState {
