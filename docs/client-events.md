@@ -211,7 +211,7 @@ type Input = {
   colSpan?: number
   hint?: string
   searchObject?: string
-  defaultValue?: string
+  defaultValue?: unknown
   searchSource?: string
   dataType?: string
 }

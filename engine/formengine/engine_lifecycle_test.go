@@ -709,6 +709,29 @@ func TestRuntimeContextExplicitOperations(t *testing.T) {
 	}
 }
 
+func TestFormControlSetDefaultValueAcceptsAnyInputValue(t *testing.T) {
+	engine := &FormEngine{}
+	engine.Field(inputs.Input{Id: "flag", Type: inputs.InputTypeCheckbox})
+	checkbox, err := engine.GetCheckboxById("flag")
+	if err != nil {
+		t.Fatalf("expected checkbox control: %v", err)
+	}
+	checkbox.SetDefaultValue(false)
+	if checkbox.Input().DefaultValue != false {
+		t.Fatalf("expected bool default value, got %#v", checkbox.Input().DefaultValue)
+	}
+
+	engine.Field(inputs.Input{Id: "count", Type: inputs.InputTypeNumber})
+	number, err := engine.GetNumberById("count")
+	if err != nil {
+		t.Fatalf("expected number control: %v", err)
+	}
+	number.SetDefaultValue(12.5)
+	if number.Input().DefaultValue != 12.5 {
+		t.Fatalf("expected numeric default value, got %#v", number.Input().DefaultValue)
+	}
+}
+
 func rootHasField(root *inputs.Container, id string) bool {
 	for i := range root.Fields {
 		if root.Fields[i].Id == id {

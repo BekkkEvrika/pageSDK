@@ -93,7 +93,7 @@ func (c *FormControl) SetSearchName(searchName string) {
 	c.input.SearchName = searchName
 }
 
-func (c *FormControl) SetDefaultValue(defaultValue string) {
+func (c *FormControl) SetDefaultValue(defaultValue any) {
 	c.input.DefaultValue = defaultValue
 }
 
