@@ -1,6 +1,7 @@
 package formengine
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -242,6 +243,7 @@ func testOnSave(ctx *RuntimeContext) {
 		return
 	}
 	saved.SetValue(true)
+	ctx.ShowSuccess("Saved", "User was saved")
 }
 
 func testOnNameChange(ctx *RuntimeContext) {
@@ -569,6 +571,9 @@ func TestFormEngineStaticEventRouteInvokesFreshPageHandler(t *testing.T) {
 	if len(runtime.Mutations) != 1 || runtime.Mutations[0].Path != "controls.saved.value" {
 		t.Fatalf("expected save mutation, got %#v", runtime.Mutations)
 	}
+	if len(runtime.Dialogs) != 1 || runtime.Dialogs[0].Level != engine.DialogSuccess {
+		t.Fatalf("expected success dialog, got %#v", runtime.Dialogs)
+	}
 }
 
 func TestFormEngineRuntimeContextReceivesFullFormState(t *testing.T) {
@@ -763,6 +768,14 @@ func TestRuntimeContextExplicitOperations(t *testing.T) {
 	ctx.Form().Add(inputs.Input{Id: "dynamic_text", Type: inputs.InputTypeText})
 	ctx.Remove("old_button")
 	ctx.OpenDialog("users.edit")
+	ctx.ShowDialog(engine.Dialog{
+		Title:       "Saved",
+		Description: "Changes were saved",
+		Level:       engine.DialogSuccess,
+		Actions: []engine.DialogAction{
+			{Name: "OK", Value: "ok"},
+		},
+	})
 	ctx.OpenTab("analytics.dashboard")
 	ctx.Close()
 	ctx.CloseWithResult(Params{"id": "42"})
@@ -796,6 +809,88 @@ func TestRuntimeContextExplicitOperations(t *testing.T) {
 	}
 	if len(ctx.Navigation) != 4 {
 		t.Fatalf("expected navigation actions, got %#v", ctx.Navigation)
+	}
+	if len(ctx.Dialogs) != 1 {
+		t.Fatalf("expected dialog action, got %#v", ctx.Dialogs)
+	}
+	if ctx.Dialogs[0].Title != "Saved" || ctx.Dialogs[0].Level != engine.DialogSuccess || ctx.Dialogs[0].Actions[0].Value != "ok" {
+		t.Fatalf("unexpected dialog action: %#v", ctx.Dialogs[0])
+	}
+}
+
+func TestRuntimeContextDialogHelpers(t *testing.T) {
+	ctx := NewRuntimeContext(&RequestContext{})
+
+	ctx.ShowMessage("Message", "Plain message")
+	ctx.ShowWarning("Warning", "Careful")
+	ctx.ShowError("Error", "Something failed")
+	ctx.ShowSuccess("Success", "Done")
+	ctx.ShowYesNo("Confirm", "Continue?")
+	ctx.ShowOKCancel("Edit", "Save changes?")
+	ctx.ShowDialog(engine.Dialog{
+		Title:       "Custom",
+		Description: "Choose custom action",
+		Level:       engine.DialogWarning,
+		Actions: []engine.DialogAction{
+			{Name: "Retry", Value: "retry"},
+			{Name: "Ignore", Value: "ignore"},
+		},
+	})
+
+	if len(ctx.Dialogs) != 7 {
+		t.Fatalf("expected seven dialogs, got %#v", ctx.Dialogs)
+	}
+	tests := []struct {
+		index   int
+		level   engine.DialogLevel
+		actions []engine.DialogAction
+	}{
+		{index: 0, level: engine.DialogInfo, actions: []engine.DialogAction{{Name: "OK", Value: "ok"}}},
+		{index: 1, level: engine.DialogWarning, actions: []engine.DialogAction{{Name: "OK", Value: "ok"}}},
+		{index: 2, level: engine.DialogError, actions: []engine.DialogAction{{Name: "OK", Value: "ok"}}},
+		{index: 3, level: engine.DialogSuccess, actions: []engine.DialogAction{{Name: "OK", Value: "ok"}}},
+		{index: 4, level: engine.DialogInfo, actions: []engine.DialogAction{{Name: "Yes", Value: "yes"}, {Name: "No", Value: "no"}}},
+		{index: 5, level: engine.DialogInfo, actions: []engine.DialogAction{{Name: "OK", Value: "ok"}, {Name: "Cancel", Value: "cancel"}}},
+		{index: 6, level: engine.DialogWarning, actions: []engine.DialogAction{{Name: "Retry", Value: "retry"}, {Name: "Ignore", Value: "ignore"}}},
+	}
+
+	for _, test := range tests {
+		dialog := ctx.Dialogs[test.index]
+		if dialog.Level != test.level {
+			t.Fatalf("dialog %d: expected level %q, got %q", test.index, test.level, dialog.Level)
+		}
+		if len(dialog.Actions) != len(test.actions) {
+			t.Fatalf("dialog %d: expected actions %#v, got %#v", test.index, test.actions, dialog.Actions)
+		}
+		for i, action := range test.actions {
+			if dialog.Actions[i] != action {
+				t.Fatalf("dialog %d action %d: expected %#v, got %#v", test.index, i, action, dialog.Actions[i])
+			}
+		}
+	}
+}
+
+func TestRuntimeResultMarshalsDialogs(t *testing.T) {
+	result := engine.RuntimeResult{
+		Dialogs: []engine.Dialog{
+			{
+				Title:       "Validation",
+				Description: "Name is required",
+				Level:       engine.DialogWarning,
+				Actions: []engine.DialogAction{
+					{Name: "Close", Value: "close"},
+				},
+			},
+		},
+	}
+
+	body, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal runtime result: %v", err)
+	}
+	want := `{"dialogs":[{"title":"Validation","description":"Name is required","level":"warning","actions":[{"name":"Close","value":"close"}]}]}`
+	if string(body) != want {
+		t.Fatalf("unexpected runtime result JSON:\nwant %s\n got %s", want, string(body))
 	}
 }
 

@@ -22,7 +22,7 @@ Application does not know event structure. Concrete Engine defines:
 - supported actions
 - event route patterns
 - runtime payload format
-- mutation/navigation response format
+- mutation/navigation/dialog response format
 
 ## Initial render
 
@@ -301,7 +301,7 @@ Content-Type: application/json
 
 ## Runtime response
 
-Event response contains explicit patch mutations and navigation actions.
+Event response contains explicit patch mutations, navigation actions, and client-side dialogs.
 
 ```json
 {
@@ -325,6 +325,19 @@ Event response contains explicit patch mutations and navigation actions.
         "id": "42"
       }
     }
+  ],
+  "dialogs": [
+    {
+      "title": "Saved",
+      "description": "User was saved successfully",
+      "level": "success",
+      "actions": [
+        {
+          "name": "OK",
+          "value": "ok"
+        }
+      ]
+    }
   ]
 }
 ```
@@ -339,6 +352,7 @@ Runtime event response:
 type RuntimeResult = {
   mutations?: Mutation[]
   navigation?: NavigationItem[]
+  dialogs?: Dialog[]
   result?: unknown
 }
 ```
@@ -362,6 +376,43 @@ type NavigationItem = {
   params?: Record<string, string>
   result?: unknown
 }
+```
+
+Client-side dialog:
+
+```ts
+type Dialog = {
+  title: string
+  description?: string
+  level: "info" | "warning" | "error" | "success"
+  actions?: DialogAction[]
+}
+
+type DialogAction = {
+  name: string
+  value: string
+}
+```
+
+Form runtime helpers:
+
+```go
+ctx.ShowMessage("Message", "Plain message")
+ctx.ShowWarning("Warning", "Check this")
+ctx.ShowError("Error", "Something failed")
+ctx.ShowSuccess("Saved", "User was saved")
+ctx.ShowYesNo("Confirm", "Continue?")
+ctx.ShowOKCancel("Edit", "Save changes?")
+
+ctx.ShowDialog(engine.Dialog{
+	Title:       "Custom",
+	Description: "Choose action",
+	Level:       engine.DialogWarning,
+	Actions: []engine.DialogAction{
+		{Name: "Retry", Value: "retry"},
+		{Name: "Ignore", Value: "ignore"},
+	},
+})
 ```
 
 ## Mutation Protocol
@@ -505,7 +556,7 @@ The backend guarantees:
 - runtime controls cannot register new event handlers
 - Page and Engine are recreated per request
 - no diff engine is used
-- all UI changes are explicit mutations/navigation actions
+- all UI changes are explicit mutations/navigation/dialog actions
 
 ## Important errors
 

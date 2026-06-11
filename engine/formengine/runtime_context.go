@@ -21,6 +21,7 @@ type RuntimeContext struct {
 	Sender     *inputs.ElementState
 	Mutations  []engine.Mutation
 	Navigation []engine.NavigationItem
+	Dialogs    []engine.Dialog
 	Err        error
 	formRoot   *inputs.Container
 }
@@ -137,6 +138,40 @@ func (ctx *RuntimeContext) Remove(id string) {
 
 func (ctx *RuntimeContext) OpenDialog(page string, params ...engine.Params) {
 	ctx.Navigation = append(ctx.Navigation, engine.NavigationItem{Type: engine.NavigationOpenDialog, Page: page, Params: optionalParams(params)})
+}
+
+func (ctx *RuntimeContext) ShowDialog(dialog engine.Dialog) {
+	ctx.Dialogs = append(ctx.Dialogs, dialog)
+}
+
+func (ctx *RuntimeContext) ShowMessage(title, description string) {
+	ctx.showDialog(title, description, engine.DialogInfo, okDialogActions())
+}
+
+func (ctx *RuntimeContext) ShowWarning(title, description string) {
+	ctx.showDialog(title, description, engine.DialogWarning, okDialogActions())
+}
+
+func (ctx *RuntimeContext) ShowError(title, description string) {
+	ctx.showDialog(title, description, engine.DialogError, okDialogActions())
+}
+
+func (ctx *RuntimeContext) ShowSuccess(title, description string) {
+	ctx.showDialog(title, description, engine.DialogSuccess, okDialogActions())
+}
+
+func (ctx *RuntimeContext) ShowYesNo(title, description string) {
+	ctx.showDialog(title, description, engine.DialogInfo, []engine.DialogAction{
+		{Name: "Yes", Value: "yes"},
+		{Name: "No", Value: "no"},
+	})
+}
+
+func (ctx *RuntimeContext) ShowOKCancel(title, description string) {
+	ctx.showDialog(title, description, engine.DialogInfo, []engine.DialogAction{
+		{Name: "OK", Value: "ok"},
+		{Name: "Cancel", Value: "cancel"},
+	})
 }
 
 func (ctx *RuntimeContext) OpenTab(page string, params ...engine.Params) {
@@ -332,6 +367,19 @@ func (ctx *RuntimeContext) fail(err error) {
 	if err != nil && ctx.Err == nil {
 		ctx.Err = err
 	}
+}
+
+func (ctx *RuntimeContext) showDialog(title, description string, level engine.DialogLevel, actions []engine.DialogAction) {
+	ctx.ShowDialog(engine.Dialog{
+		Title:       title,
+		Description: description,
+		Level:       level,
+		Actions:     actions,
+	})
+}
+
+func okDialogActions() []engine.DialogAction {
+	return []engine.DialogAction{{Name: "OK", Value: "ok"}}
 }
 
 func newDetachedRuntimeControl(ctx *RuntimeContext, id, inputType string) *RuntimeControl {

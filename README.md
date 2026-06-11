@@ -1,6 +1,6 @@
 # pageSDK
 
-`pageSDK` - это Go-библиотека для server-driven UI: backend описывает страницу как DSL, frontend отрисовывает этот DSL, а события пользователя отправляет обратно на backend. Backend не хранит состояние интерфейса между запросами. Любое изменение UI возвращается клиенту явно: через `mutations` и `navigation`.
+`pageSDK` - это Go-библиотека для server-driven UI: backend описывает страницу как DSL, frontend отрисовывает этот DSL, а события пользователя отправляет обратно на backend. Backend не хранит состояние интерфейса между запросами. Любое изменение UI возвращается клиенту явно: через `mutations`, `navigation` и `dialogs`.
 
 Проект сейчас содержит два движка:
 
@@ -147,7 +147,7 @@ pageSDK/
 - `Page` - stateless-описание одной страницы.
 - `Engine` - отвечает за DSL, routes и обработку событий конкретного типа страницы.
 - `BuildContext` - контекст для построения DSL внутри `Init`.
-- `RuntimeContext` - контекст для event handlers, чтения runtime state, записи mutations и navigation.
+- `RuntimeContext` - контекст для event handlers, чтения runtime state, записи mutations, navigation и dialogs.
 
 ## Lifecycle приложения
 
@@ -373,12 +373,13 @@ func onSave(ctx *engine.RuntimeContext) {
 - прочитать полный runtime element через `control.Element()`;
 - отправить mutations через `SetValue`, `SetLabel`, `SetVisibility`, `SetHint` для text input, `ctx.Form().Add`, `ctx.Remove`;
 - отправить navigation через `ctx.OpenDialog`, `ctx.OpenTab`, `ctx.Close`, `ctx.CloseWithResult`.
+- показать клиентский диалог через `ctx.ShowMessage`, `ctx.ShowWarning`, `ctx.ShowError`, `ctx.ShowSuccess`, `ctx.ShowYesNo`, `ctx.ShowOKCancel` или кастомный `ctx.ShowDialog`.
 
 В handler нельзя:
 
 - регистрировать новые event handlers;
 - полагаться на состояние, сохраненное в предыдущем запросе;
-- менять frontend неявно. Все изменения должны попасть в response как `mutations` или `navigation`.
+- менять frontend неявно. Все изменения должны попасть в response как `mutations`, `navigation` или `dialogs`.
 
 Пример чтения значения, которое пришло от frontend:
 
@@ -512,6 +513,49 @@ ctx.CloseWithResult(map[string]any{"saved": true})
 
 Frontend сам владеет navigation stack. Backend остается stateless.
 
+## Dialogs
+
+Dialogs не являются mutations или navigation. Они возвращаются отдельным блоком `dialogs`:
+
+```json
+{
+  "dialogs": [
+    {
+      "title": "Saved",
+      "description": "User was saved",
+      "level": "success",
+      "actions": [
+        {
+          "name": "OK",
+          "value": "ok"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Go API:
+
+```go
+ctx.ShowMessage("Message", "Plain message")
+ctx.ShowWarning("Warning", "Check this")
+ctx.ShowError("Error", "Something failed")
+ctx.ShowSuccess("Saved", "User was saved")
+ctx.ShowYesNo("Confirm", "Continue?")
+ctx.ShowOKCancel("Edit", "Save changes?")
+
+ctx.ShowDialog(engine.Dialog{
+	Title:       "Custom",
+	Description: "Choose action",
+	Level:       engine.DialogWarning,
+	Actions: []engine.DialogAction{
+		{Name: "Retry", Value: "retry"},
+		{Name: "Ignore", Value: "ignore"},
+	},
+})
+```
+
 ## TableEngine
 
 `TableEngine` генерирует:
@@ -575,11 +619,12 @@ Runtime response:
 {
   "mutations": [],
   "navigation": [],
+  "dialogs": [],
   "result": null
 }
 ```
 
-`mutations`, `navigation` и `result` могут отсутствовать, если они пустые.
+`mutations`, `navigation`, `dialogs` и `result` могут отсутствовать, если они пустые.
 
 ## BuildContext и RuntimeContext
 
@@ -604,6 +649,7 @@ type RuntimeContext struct {
 	Sender     *inputs.ElementState
 	Mutations  []engine.Mutation
 	Navigation []engine.NavigationItem
+	Dialogs    []engine.Dialog
 }
 ```
 
@@ -631,7 +677,7 @@ Frontend должен:
 - `Page` создается заново на каждый request.
 - `Engine` создается заново вместе с `Page` и хранит DSL только внутри текущего request.
 - `Init` строит DSL и регистрирует handlers.
-- Runtime handler не перестраивает приложение, а возвращает explicit mutations/navigation.
+- Runtime handler не перестраивает приложение, а возвращает explicit mutations/navigation/dialogs.
 - Form event routes статические и детерминированные.
 - Backend не хранит UI state между запросами.
 - Frontend присылает runtime state, который нужен handler.

@@ -26,6 +26,22 @@ type PageFactory = engine.PageFactory
 // Engine is implemented by page runtime engines.
 type Engine = engine.Engine
 
+// Dialog describes a client-side message dialog requested by runtime code.
+type Dialog = engine.Dialog
+
+// DialogLevel enumerates client-side dialog severity levels.
+type DialogLevel = engine.DialogLevel
+
+// DialogAction describes one action button in a client-side dialog.
+type DialogAction = engine.DialogAction
+
+const (
+	DialogInfo    = engine.DialogInfo
+	DialogWarning = engine.DialogWarning
+	DialogError   = engine.DialogError
+	DialogSuccess = engine.DialogSuccess
+)
+
 // New creates a new pageSDK application.
 func New() *Application {
 	return app.New()

@@ -51,5 +51,6 @@ type RenderResult struct {
 type RuntimeResult struct {
 	Mutations  []Mutation       `json:"mutations,omitempty"`
 	Navigation []NavigationItem `json:"navigation,omitempty"`
+	Dialogs    []Dialog         `json:"dialogs,omitempty"`
 	Result     any              `json:"result,omitempty"`
 }

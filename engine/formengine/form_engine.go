@@ -319,6 +319,7 @@ func (f *FormEngine) Handle(ctx *engine.RequestContext, page engine.Page) (*engi
 	return &engine.RuntimeResult{
 		Mutations:  runtimeCtx.Mutations,
 		Navigation: runtimeCtx.Navigation,
+		Dialogs:    runtimeCtx.Dialogs,
 	}, nil
 }
 
