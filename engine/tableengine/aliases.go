@@ -5,6 +5,8 @@ import "github.com/BekkkEvrika/pageSDK/table"
 type TableSchema = table.TableSchema
 type TableColumnSchema = table.TableColumnSchema
 type TableData = table.TableData
+type TableEventRoutes = table.TableEventRoutes
+type TableEventRoute = table.TableEventRoute
 type TableActionGroups = table.TableActionGroups
 type ActionSchema = table.ActionSchema
 type TableFeatureConfig = table.TableFeatureConfig

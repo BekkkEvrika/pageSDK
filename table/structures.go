@@ -1,10 +1,12 @@
 package table
 
 type TableSchema struct {
+	ID                string                `json:"id"`
 	Title             string                `json:"title,omitempty"`
 	RequestURL        string                `json:"requestUrl,omitempty"`
 	Columns           []TableColumnSchema   `json:"columns"`
 	Features          *TableFeatureConfig   `json:"features,omitempty"`
+	Events            *TableEventRoutes     `json:"events,omitempty"`
 	Actions           *TableActionGroups    `json:"actions,omitempty"`
 	Selection         *TableSelectionSchema `json:"selection,omitempty"`
 	Hotkeys           []TableHotkeySchema   `json:"hotkeys,omitempty"`
@@ -14,6 +16,17 @@ type TableSchema struct {
 	EmptyMessage      string                `json:"emptyMessage,omitempty"`
 	SubRowsKey        string                `json:"subRowsKey,omitempty"`
 	SubRowsRequestURL string                `json:"subRowsRequestUrl,omitempty"`
+}
+
+type TableEventRoutes struct {
+	Reload     *TableEventRoute `json:"reload,omitempty"`
+	Filter     *TableEventRoute `json:"filter,omitempty"`
+	Pagination *TableEventRoute `json:"pagination,omitempty"`
+}
+
+type TableEventRoute struct {
+	URL    string     `json:"url"`
+	Method HTTPMethod `json:"method"`
 }
 
 type TableColumnSchema struct {
@@ -63,6 +76,7 @@ type ActionSchema struct {
 }
 
 type TableFeatureConfig struct {
+	Reload        bool `json:"reload,omitempty"`
 	Sorting       bool `json:"sorting,omitempty"`
 	Filtering     bool `json:"filtering,omitempty"`
 	GlobalSearch  bool `json:"globalSearch,omitempty"`

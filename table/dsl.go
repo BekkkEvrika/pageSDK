@@ -8,18 +8,13 @@ import (
 // New creates an empty table DSL schema.
 func New(name ...string) TableSchema {
 	schema := TableSchema{
-		Columns: []TableColumnSchema{},
-		Features: &TableFeatureConfig{
-			Sorting:      true,
-			Filtering:    true,
-			GlobalSearch: true,
-			Pagination:   true,
-		},
+		Columns:      []TableColumnSchema{},
 		RowIDKey:     "id",
 		State:        &TableStateConfig{PageSize: 20},
 		EmptyMessage: "No data",
 	}
 	if len(name) > 0 && name[0] != "" {
+		schema.ID = name[0]
 		schema.Title = titleFromName(name[0])
 		schema.RequestURL = "/api/" + name[0]
 	}
@@ -53,12 +48,22 @@ func NewColumnBuilder(column *TableColumnSchema) *ColumnBuilder {
 
 // Builder mutates a TableSchema owned by an engine instance.
 type Builder struct {
-	schema *TableSchema
+	schema        *TableSchema
+	tableID       string
+	registrar     TableEventRegistrar
+	enabledEvents map[TableEventType]bool
 }
 
 // Schema returns the mutable schema.
 func (b *Builder) Schema() *TableSchema {
 	return b.schema
+}
+
+// Runtime binds table event registration to this builder.
+func (b *Builder) Runtime(tableID string, registrar TableEventRegistrar) *Builder {
+	b.tableID = tableID
+	b.registrar = registrar
+	return b
 }
 
 // Title sets the table title.
@@ -111,6 +116,7 @@ func (b *Builder) Columns(columns ...*ColumnBuilder) *Builder {
 
 // Features replaces the feature config.
 func (b *Builder) Features(features TableFeatureConfig) *Builder {
+	b.applyEventFeatures(&features)
 	b.schema.Features = &features
 	return b
 }
@@ -143,6 +149,21 @@ func (b *Builder) State(state TableStateConfig) *Builder {
 func (b *Builder) Data(data any) *Builder {
 	b.schema.Data = normalizeData(data)
 	return b
+}
+
+// OnReload registers a reload handler and enables reload support.
+func (b *Builder) OnReload(handler TableEventHandler) *Builder {
+	return b.on(TableEventReload, handler)
+}
+
+// OnFilter registers a filter handler and enables filtering.
+func (b *Builder) OnFilter(handler TableEventHandler) *Builder {
+	return b.on(TableEventFilter, handler)
+}
+
+// OnPagination registers a pagination handler and enables pagination.
+func (b *Builder) OnPagination(handler TableEventHandler) *Builder {
+	return b.on(TableEventPagination, handler)
 }
 
 // SetTitle sets the table title.
@@ -629,4 +650,37 @@ func upperFirst(value string) string {
 	}
 	runes[0] = unicode.ToUpper(runes[0])
 	return string(runes)
+}
+
+func (b *Builder) on(event TableEventType, handler TableEventHandler) *Builder {
+	if handler == nil || b.registrar == nil || b.tableID == "" {
+		return b
+	}
+	if b.enabledEvents == nil {
+		b.enabledEvents = map[TableEventType]bool{}
+	}
+	b.enabledEvents[event] = true
+	b.registrar.RegisterTableHandler(b.tableID, event, handler)
+	features := b.schema.Features
+	if features == nil {
+		features = &TableFeatureConfig{}
+		b.schema.Features = features
+	}
+	b.applyEventFeatures(features)
+	return b
+}
+
+func (b *Builder) applyEventFeatures(features *TableFeatureConfig) {
+	if features == nil {
+		return
+	}
+	if b.enabledEvents[TableEventReload] {
+		features.Reload = true
+	}
+	if b.enabledEvents[TableEventFilter] {
+		features.Filtering = true
+	}
+	if b.enabledEvents[TableEventPagination] {
+		features.Pagination = true
+	}
 }

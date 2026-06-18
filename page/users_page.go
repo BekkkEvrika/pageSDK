@@ -36,7 +36,36 @@ func (p *UsersPage) Init(ctx *engine.BuildContext) error {
 			{"id": 1, "name": "Behzod", "email": "behzod@example.com", "status": "active"},
 			{"id": 2, "name": "Ali", "email": "ali@example.com", "status": "inactive"},
 			{"id": 3, "name": "Madina", "email": "madina@example.com", "status": "active"},
-		})
+		}).
+		OnReload(onUsersReload).
+		OnFilter(onUsersFilter).
+		OnPagination(onUsersPagination)
 
 	return nil
+}
+
+func onUsersReload(ctx *tableengine.TableRuntimeContext) {
+	ctx.Table("users").SetData(usersData(ctx.EventTable.PageIndex, ctx.EventTable.PageSize))
+}
+
+func onUsersFilter(ctx *tableengine.TableRuntimeContext) {
+	ctx.Table("users").SetData(usersData(ctx.EventTable.PageIndex, ctx.EventTable.PageSize))
+}
+
+func onUsersPagination(ctx *tableengine.TableRuntimeContext) {
+	ctx.Table("users").SetData(usersData(ctx.EventTable.PageIndex, ctx.EventTable.PageSize))
+}
+
+func usersData(pageIndex, pageSize int) tableengine.TableData {
+	rows := []map[string]any{
+		{"id": 1, "name": "Behzod", "email": "behzod@example.com", "status": "active"},
+		{"id": 2, "name": "Ali", "email": "ali@example.com", "status": "inactive"},
+		{"id": 3, "name": "Madina", "email": "madina@example.com", "status": "active"},
+	}
+	return tableengine.TableData{
+		Rows:      rows,
+		Total:     len(rows),
+		PageIndex: pageIndex,
+		PageSize:  pageSize,
+	}
 }

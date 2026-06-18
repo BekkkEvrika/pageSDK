@@ -110,6 +110,248 @@ Do not build dynamic wildcard URLs such as:
 
 Those are not client-facing routes for `FormEngine`.
 
+## Table event route discovery
+
+For table pages, the rendered DSL exposes the table id and only the registered
+runtime event routes under `dsl.events`.
+
+Example:
+
+```json
+{
+  "pageKey": "users.list",
+  "engine": "table",
+  "dsl": {
+    "id": "users",
+    "columns": [],
+    "features": {
+      "reload": true,
+      "filtering": true,
+      "pagination": true
+    },
+    "events": {
+      "reload": {
+        "url": "/event/users.list/table/users/reload",
+        "method": "POST"
+      },
+      "filter": {
+        "url": "/event/users.list/table/users/filter",
+        "method": "POST"
+      },
+      "pagination": {
+        "url": "/event/users.list/table/users/pagination",
+        "method": "POST"
+      }
+    }
+  }
+}
+```
+
+Client rules:
+
+- use `dsl.id` as the stable table id;
+- call the exact `url` and `method` from `dsl.events`;
+- do not construct table event URLs on the frontend;
+- an event key is omitted when its backend handler is not registered;
+- `features.reload`, `features.filtering`, and `features.pagination` are enabled
+  automatically when the corresponding handler is registered.
+
+## Table event payload
+
+Table events use their own typed payload. They do not use the form event
+payload and do not send form `elements` or `sender`.
+
+```ts
+type TableEventRequest = {
+  state?: TableState
+  pageIndex?: number
+  pageSize?: number
+  filters?: TableFilterState[]
+  params?: Record<string, unknown>
+  extra?: Record<string, unknown>
+}
+
+type TableState = {
+  pageIndex?: number
+  pageSize?: number
+  globalFilter?: string
+  sorting?: TableSortingItem[]
+  filters?: TableFilterState[]
+  columnVisibility?: Record<string, boolean>
+  selectedRows?: string[]
+  columnSizing?: Record<string, number>
+}
+
+type TableSortingItem = {
+  id: string
+  desc?: boolean
+}
+
+type TableFilterState = {
+  id: string
+  value: unknown
+  operator?:
+    | "eq"
+    | "neq"
+    | "contains"
+    | "startsWith"
+    | "endsWith"
+    | "gt"
+    | "gte"
+    | "lt"
+    | "lte"
+    | "between"
+    | "in"
+    | "notIn"
+}
+```
+
+Payload rules:
+
+- every property is optional;
+- `state` is the full current table state when the client already maintains it;
+- top-level `pageIndex`, `pageSize`, and `filters` override the same values from
+  `state`;
+- `params` contains request-specific values required by the handler;
+- `extra` contains optional client metadata;
+- table id and event type are derived from the DSL event URL and must not be
+  duplicated in the JSON body.
+
+### Reload event
+
+A reload may send an empty object:
+
+```http
+POST /event/users.list/table/users/reload
+Content-Type: application/json
+```
+
+```json
+{}
+```
+
+If the current state must be preserved, send it explicitly:
+
+```json
+{
+  "state": {
+    "pageIndex": 1,
+    "pageSize": 20,
+    "filters": [
+      {
+        "id": "status",
+        "value": "active",
+        "operator": "eq"
+      }
+    ]
+  }
+}
+```
+
+### Filter event
+
+Send the complete active filter list. An empty array means that all filters
+were cleared.
+
+```http
+POST /event/users.list/table/users/filter
+Content-Type: application/json
+```
+
+```json
+{
+  "pageIndex": 0,
+  "pageSize": 20,
+  "filters": [
+    {
+      "id": "name",
+      "value": "Ali",
+      "operator": "contains"
+    },
+    {
+      "id": "status",
+      "value": ["active", "pending"],
+      "operator": "in"
+    }
+  ],
+  "params": {
+    "tenantId": 17
+  }
+}
+```
+
+### Pagination event
+
+`pageIndex` is zero-based. Send the requested page and current filters.
+
+```http
+POST /event/users.list/table/users/pagination
+Content-Type: application/json
+```
+
+```json
+{
+  "pageIndex": 2,
+  "pageSize": 25,
+  "filters": [
+    {
+      "id": "status",
+      "value": "active",
+      "operator": "eq"
+    }
+  ],
+  "extra": {
+    "source": "pagination"
+  }
+}
+```
+
+Inside the backend handler these values are available through the specialized
+`TableRuntimeContext`:
+
+```go
+func OnUsersPagination(ctx *tableengine.TableRuntimeContext) {
+	pageIndex := ctx.EventTable.PageIndex
+	pageSize := ctx.EventTable.PageSize
+	filters := ctx.EventTable.Filters
+
+	rows, total := loadUsers(pageIndex, pageSize, filters)
+	ctx.Table("users").SetData(tableengine.TableData{
+		Rows:      rows,
+		Total:     total,
+		PageIndex: pageIndex,
+		PageSize:  pageSize,
+	})
+}
+```
+
+`SetData` returns a normal runtime mutation:
+
+```json
+{
+  "mutations": [
+    {
+      "type": "update",
+      "path": "tables.users.data",
+      "value": {
+        "rows": [
+          {
+            "id": 1,
+            "name": "Alice"
+          }
+        ],
+        "total": 42,
+        "pageIndex": 2,
+        "pageSize": 25
+      }
+    }
+  ]
+}
+```
+
+The client must replace the table data at the mutation path and must not treat
+the response as a form mutation.
+
 ## Form event payload
 
 For form events, send the current UI element state as one universal payload shape.

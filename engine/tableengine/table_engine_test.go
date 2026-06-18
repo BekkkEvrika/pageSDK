@@ -1,10 +1,36 @@
 package tableengine
 
 import (
+	"encoding/json"
 	"testing"
 
+	"github.com/BekkkEvrika/pageSDK/engine"
 	"github.com/BekkkEvrika/pageSDK/table"
 )
+
+type runtimeTablePage struct {
+	*TableEngine
+	called *table.TableRuntimeContext
+}
+
+func (p *runtimeTablePage) Init(ctx *engine.BuildContext) error {
+	p.Table("users").
+		Columns(p.Column("id"), p.Column("name")).
+		OnReload(p.handle).
+		OnFilter(p.handle).
+		OnPagination(p.handle)
+	return nil
+}
+
+func (p *runtimeTablePage) handle(ctx *table.TableRuntimeContext) {
+	p.called = ctx
+	ctx.Table("users").SetData(table.TableData{
+		Rows:      []map[string]any{{"id": 10, "name": "Runtime"}},
+		Total:     42,
+		PageIndex: ctx.EventTable.PageIndex,
+		PageSize:  ctx.EventTable.PageSize,
+	})
+}
 
 func TestColumnBuildsPackageTableSchema(t *testing.T) {
 	engine := &TableEngine{}
@@ -134,7 +160,7 @@ func TestTableBuilderFluentAPI(t *testing.T) {
 	}
 }
 
-func TestTableBuilderAppliesDefaultsAndSimpleData(t *testing.T) {
+func TestTableBuilderAppliesSchemaDefaultsAndSimpleData(t *testing.T) {
 	engine := &TableEngine{}
 
 	engine.Table("users").
@@ -158,8 +184,8 @@ func TestTableBuilderAppliesDefaultsAndSimpleData(t *testing.T) {
 	if dsl.RowIDKey != "id" {
 		t.Fatalf("row ID key = %q, want id", dsl.RowIDKey)
 	}
-	if dsl.Features == nil || !dsl.Features.Sorting || !dsl.Features.Filtering || !dsl.Features.GlobalSearch || !dsl.Features.Pagination {
-		t.Fatalf("default features not applied: %#v", dsl.Features)
+	if dsl.Features != nil {
+		t.Fatalf("runtime features must require handlers or explicit config: %#v", dsl.Features)
 	}
 	if dsl.State == nil || dsl.State.PageSize != 20 {
 		t.Fatalf("default state not applied: %#v", dsl.State)
@@ -169,5 +195,144 @@ func TestTableBuilderAppliesDefaultsAndSimpleData(t *testing.T) {
 	}
 	if dsl.Columns[0].Header != "id" || dsl.Columns[0].AccessorKey != "id" {
 		t.Fatalf("column defaults not applied: %#v", dsl.Columns[0])
+	}
+}
+
+func TestTableRuntimeRoutesAndFeatures(t *testing.T) {
+	page := &runtimeTablePage{TableEngine: &TableEngine{}}
+
+	routes := page.TableEngine.Routes("users.list", page)
+	if len(routes) != 4 {
+		t.Fatalf("routes len = %d, want render plus three events", len(routes))
+	}
+
+	wantPaths := []string{
+		"/page/users.list",
+		"/event/users.list/table/users/reload",
+		"/event/users.list/table/users/filter",
+		"/event/users.list/table/users/pagination",
+	}
+	for i, want := range wantPaths {
+		if routes[i].Path != want {
+			t.Fatalf("route[%d] path = %q, want %q", i, routes[i].Path, want)
+		}
+	}
+
+	dsl := page.DSL().(table.TableSchema)
+	if dsl.Features == nil || !dsl.Features.Reload || !dsl.Features.Filtering || !dsl.Features.Pagination {
+		t.Fatalf("event features were not enabled: %#v", dsl.Features)
+	}
+}
+
+func TestTableRenderExposesRegisteredEventURLs(t *testing.T) {
+	page := &runtimeTablePage{TableEngine: &TableEngine{}}
+
+	render, err := page.TableEngine.Render(&engine.RequestContext{
+		PageKey: "users.list",
+	}, page)
+	if err != nil {
+		t.Fatalf("render returned error: %v", err)
+	}
+
+	dsl, ok := render.DSL.(table.TableSchema)
+	if !ok {
+		t.Fatalf("DSL type = %T, want table.TableSchema", render.DSL)
+	}
+	if dsl.ID != "users" {
+		t.Fatalf("table id = %q, want users", dsl.ID)
+	}
+	if dsl.Events == nil {
+		t.Fatal("table events are missing from rendered DSL")
+	}
+
+	assertRoute := func(name string, route *table.TableEventRoute, wantURL string) {
+		t.Helper()
+		if route == nil {
+			t.Fatalf("%s route is missing", name)
+		}
+		if route.URL != wantURL || route.Method != table.HTTPMethodPOST {
+			t.Fatalf("%s route = %#v, want POST %s", name, route, wantURL)
+		}
+	}
+	assertRoute("reload", dsl.Events.Reload, "/event/users.list/table/users/reload")
+	assertRoute("filter", dsl.Events.Filter, "/event/users.list/table/users/filter")
+	assertRoute("pagination", dsl.Events.Pagination, "/event/users.list/table/users/pagination")
+}
+
+func TestTablePaginationUsesTypedRuntimeContext(t *testing.T) {
+	bootstrapPage := &runtimeTablePage{TableEngine: &TableEngine{}}
+	routes := bootstrapPage.TableEngine.Routes("users.list", bootstrapPage)
+	runtimePage := &runtimeTablePage{TableEngine: &TableEngine{}}
+
+	pageIndex := 2
+	pageSize := 25
+	body, err := json.Marshal(table.TableEventRequest{
+		PageIndex: &pageIndex,
+		PageSize:  &pageSize,
+		Filters: []table.TableFilterState{
+			{ID: "status", Value: "active", Operator: table.TableFilterOperatorEq},
+		},
+		Params: map[string]any{"tenantId": 17},
+		Extra:  map[string]any{"source": "toolbar"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := routes[3].Handler(&engine.RequestContext{
+		Params: engine.Params{"locale": "en"},
+		User:   engine.User{"id": 7},
+		System: engine.SystemKeys{"tenant": "main"},
+		Body:   body,
+	}, runtimePage)
+	if err != nil {
+		t.Fatalf("pagination handler returned error: %v", err)
+	}
+
+	runtime, ok := result.(*engine.RuntimeResult)
+	if !ok {
+		t.Fatalf("result type = %T, want *engine.RuntimeResult", result)
+	}
+	if runtimePage.called == nil {
+		t.Fatal("table handler was not called")
+	}
+	ctx := runtimePage.called
+	if ctx.EventTable.TableID != "users" || ctx.EventTable.Event != table.TableEventPagination {
+		t.Fatalf("unexpected event table: %#v", ctx.EventTable)
+	}
+	if ctx.EventTable.PageIndex != 2 || ctx.EventTable.PageSize != 25 {
+		t.Fatalf("unexpected pagination: %#v", ctx.EventTable)
+	}
+	if len(ctx.EventTable.Filters) != 1 || ctx.EventTable.Filters[0].ID != "status" {
+		t.Fatalf("unexpected filters: %#v", ctx.EventTable.Filters)
+	}
+	if ctx.Params["locale"] != "en" || ctx.Params["tenantId"] != float64(17) {
+		t.Fatalf("unexpected params: %#v", ctx.Params)
+	}
+	if ctx.Extra["source"] != "toolbar" {
+		t.Fatalf("unexpected extra: %#v", ctx.Extra)
+	}
+	if len(runtime.Mutations) != 1 {
+		t.Fatalf("mutations = %#v, want one data update", runtime.Mutations)
+	}
+	mutation := runtime.Mutations[0]
+	if mutation.Type != engine.MutationUpdate || mutation.Path != "tables.users.data" {
+		t.Fatalf("unexpected mutation: %#v", mutation)
+	}
+	data, ok := mutation.Value.(table.TableData)
+	if !ok || data.Total != 42 || data.PageIndex != 2 || data.PageSize != 25 {
+		t.Fatalf("unexpected mutation data: %#v", mutation.Value)
+	}
+}
+
+func TestTableRuntimeRejectsInvalidPayload(t *testing.T) {
+	bootstrapPage := &runtimeTablePage{TableEngine: &TableEngine{}}
+	routes := bootstrapPage.TableEngine.Routes("users.list", bootstrapPage)
+
+	_, err := routes[1].Handler(&engine.RequestContext{
+		Body: []byte(`{"pageIndex":`),
+	}, &runtimeTablePage{TableEngine: &TableEngine{}})
+	if err == nil {
+		t.Fatal("expected invalid table payload error")
 	}
 }
