@@ -336,3 +336,20 @@ func TestTableRuntimeRejectsInvalidPayload(t *testing.T) {
 		t.Fatal("expected invalid table payload error")
 	}
 }
+
+func TestTableRuntimeRejectsDuplicatedStatePayload(t *testing.T) {
+	bootstrapPage := &runtimeTablePage{TableEngine: &TableEngine{}}
+	routes := bootstrapPage.TableEngine.Routes("users.list", bootstrapPage)
+
+	_, err := routes[3].Handler(&engine.RequestContext{
+		Body: []byte(`{
+			"state":{"pageIndex":0,"pageSize":10,"filters":[]},
+			"pageIndex":0,
+			"pageSize":10,
+			"filters":[]
+		}`),
+	}, &runtimeTablePage{TableEngine: &TableEngine{}})
+	if err == nil {
+		t.Fatal("expected duplicated state payload error")
+	}
+}

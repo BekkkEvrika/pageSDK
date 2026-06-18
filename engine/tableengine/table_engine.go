@@ -1,6 +1,7 @@
 package tableengine
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -312,7 +313,9 @@ func (t *TableEngine) bindEventRoutes(pageKey string) {
 func (t *TableEngine) runtimeContext(req *engine.RequestContext, key tableEventKey) (*table.TableRuntimeContext, error) {
 	payload := table.TableEventRequest{}
 	if len(req.Body) > 0 {
-		if err := json.Unmarshal(req.Body, &payload); err != nil {
+		decoder := json.NewDecoder(bytes.NewReader(req.Body))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&payload); err != nil {
 			return nil, fmt.Errorf("table engine: decode %s payload: %w", key.Event, err)
 		}
 	}
@@ -348,9 +351,6 @@ func (t *TableEngine) runtimeContext(req *engine.RequestContext, key tableEventK
 }
 
 func mergeTableState(state *table.TableStateConfig, payload table.TableEventRequest) {
-	if payload.State != nil {
-		*state = *payload.State
-	}
 	if payload.PageIndex != nil {
 		state.PageIndex = *payload.PageIndex
 	}

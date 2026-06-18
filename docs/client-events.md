@@ -163,28 +163,11 @@ payload and do not send form `elements` or `sender`.
 
 ```ts
 type TableEventRequest = {
-  state?: TableState
   pageIndex?: number
   pageSize?: number
   filters?: TableFilterState[]
   params?: Record<string, unknown>
   extra?: Record<string, unknown>
-}
-
-type TableState = {
-  pageIndex?: number
-  pageSize?: number
-  globalFilter?: string
-  sorting?: TableSortingItem[]
-  filters?: TableFilterState[]
-  columnVisibility?: Record<string, boolean>
-  selectedRows?: string[]
-  columnSizing?: Record<string, number>
-}
-
-type TableSortingItem = {
-  id: string
-  desc?: boolean
 }
 
 type TableFilterState = {
@@ -208,10 +191,12 @@ type TableFilterState = {
 
 Payload rules:
 
-- every property is optional;
-- `state` is the full current table state when the client already maintains it;
-- top-level `pageIndex`, `pageSize`, and `filters` override the same values from
-  `state`;
+- there is no nested `state` object;
+- do not duplicate `pageIndex`, `pageSize`, or `filters`;
+- `pageIndex` is zero-based;
+- `pageSize` is the requested number of rows;
+- `filters` is always the complete current list of active filters;
+- send `filters: []` when no filters are active;
 - `params` contains request-specific values required by the handler;
 - `extra` contains optional client metadata;
 - table id and event type are derived from the DSL event URL and must not be
@@ -219,7 +204,8 @@ Payload rules:
 
 ### Reload event
 
-A reload may send an empty object:
+A reload should send the current page and active filters so the backend reloads
+the same table view:
 
 ```http
 POST /event/users.list/table/users/reload
@@ -227,31 +213,26 @@ Content-Type: application/json
 ```
 
 ```json
-{}
-```
-
-If the current state must be preserved, send it explicitly:
-
-```json
 {
-  "state": {
-    "pageIndex": 1,
-    "pageSize": 20,
-    "filters": [
-      {
-        "id": "status",
-        "value": "active",
-        "operator": "eq"
-      }
-    ]
+  "pageIndex": 1,
+  "pageSize": 20,
+  "filters": [
+    {
+      "id": "status",
+      "value": "active",
+      "operator": "eq"
+    }
+  ],
+  "extra": {
+    "source": "reload"
   }
 }
 ```
 
 ### Filter event
 
-Send the complete active filter list. An empty array means that all filters
-were cleared.
+Send the complete active filter list and reset `pageIndex` to `0`. An empty
+array means that all filters were cleared.
 
 ```http
 POST /event/users.list/table/users/filter
@@ -282,7 +263,9 @@ Content-Type: application/json
 
 ### Pagination event
 
-`pageIndex` is zero-based. Send the requested page and current filters.
+Send the requested page, page size, and the complete current filter list.
+Filters must also be sent during pagination; otherwise the backend cannot know
+that the new page belongs to a filtered result set.
 
 ```http
 POST /event/users.list/table/users/pagination
@@ -300,6 +283,19 @@ Content-Type: application/json
       "operator": "eq"
     }
   ],
+  "extra": {
+    "source": "pagination"
+  }
+}
+```
+
+Canonical pagination payload without active filters:
+
+```json
+{
+  "pageIndex": 2,
+  "pageSize": 25,
+  "filters": [],
   "extra": {
     "source": "pagination"
   }

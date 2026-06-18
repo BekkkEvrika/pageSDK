@@ -25,7 +25,6 @@ type TableEventRegistrar interface {
 
 // TableEventRequest is the typed client payload for table runtime events.
 type TableEventRequest struct {
-	State     *TableStateConfig  `json:"state,omitempty"`
 	PageIndex *int               `json:"pageIndex,omitempty"`
 	PageSize  *int               `json:"pageSize,omitempty"`
 	Filters   []TableFilterState `json:"filters,omitempty"`
