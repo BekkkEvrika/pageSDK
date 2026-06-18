@@ -24,8 +24,9 @@ type TableEngine struct {
 }
 
 type tableEventKey struct {
-	TableID string
-	Event   table.TableEventType
+	TableID  string
+	Event    table.TableEventType
+	ActionID string
 }
 
 // TableDSL is kept for compatibility. New code should use table.TableSchema.
@@ -100,6 +101,11 @@ func (t *TableEngine) Features(features table.TableFeatureConfig) *table.Builder
 // Actions replaces all table action groups.
 func (t *TableEngine) Actions(actions table.TableActionGroups) *table.Builder {
 	return t.builder().Actions(actions)
+}
+
+// RowAction appends a row action and registers its handler.
+func (t *TableEngine) RowAction(action table.ActionSchema, handler table.TableEventHandler) *table.Builder {
+	return t.builder().RowAction(action, handler)
 }
 
 // Selection replaces the selection config.
@@ -197,19 +203,19 @@ func (t *TableEngine) Render(ctx *engine.RequestContext, page engine.Page) (*eng
 	}, nil
 }
 
-// Handle dispatches one supported table runtime event.
+// Handle is not used for table routes. Every table event has its own route handler.
 func (t *TableEngine) Handle(ctx *engine.RequestContext, page engine.Page) (*engine.RuntimeResult, error) {
+	return nil, fmt.Errorf("table engine: direct Handle call is not supported")
+}
+
+func (t *TableEngine) executeEvent(ctx *engine.RequestContext, page engine.Page, key tableEventKey) (*engine.RuntimeResult, error) {
 	if err := page.Init(ctx.BuildContext()); err != nil {
 		return nil, err
 	}
 
-	key := tableEventKey{
-		TableID: ctx.Params["tableId"],
-		Event:   table.TableEventType(ctx.Params["tableEvent"]),
-	}
 	handler := t.handlers[key]
 	if handler == nil {
-		return nil, fmt.Errorf("table engine: handler for %q/%q not found", key.TableID, key.Event)
+		return nil, fmt.Errorf("table engine: handler for table %q event %q action %q not found", key.TableID, key.Event, key.ActionID)
 	}
 
 	runtimeCtx, err := t.runtimeContext(ctx, key)
@@ -243,6 +249,21 @@ func (t *TableEngine) RegisterTableHandler(tableID string, event table.TableEven
 	t.handlers[tableEventKey{TableID: tableID, Event: event}] = handler
 }
 
+// RegisterRowActionHandler registers a row action handler.
+func (t *TableEngine) RegisterRowActionHandler(tableID, actionID string, handler table.TableEventHandler) {
+	if handler == nil || tableID == "" || actionID == "" {
+		return
+	}
+	if t.handlers == nil {
+		t.handlers = map[tableEventKey]table.TableEventHandler{}
+	}
+	t.handlers[tableEventKey{
+		TableID:  tableID,
+		Event:    table.TableEventRowAction,
+		ActionID: actionID,
+	}] = handler
+}
+
 func (t *TableEngine) ensureDSL() {
 	if t.dsl.Columns == nil {
 		t.dsl = table.New()
@@ -264,12 +285,11 @@ func (t *TableEngine) renderRoute(pageKey string) engine.RouteHandler {
 func (t *TableEngine) handleRoute(pageKey string, key tableEventKey) engine.RouteHandler {
 	return func(ctx *engine.RequestContext, page engine.Page) (any, error) {
 		ctx.PageKey = pageKey
-		if ctx.Params == nil {
-			ctx.Params = engine.Params{}
+		requestEngine, ok := page.GetEngine().(*TableEngine)
+		if !ok {
+			return nil, fmt.Errorf("table engine: page %q returned unexpected engine %T", pageKey, page.GetEngine())
 		}
-		ctx.Params["tableId"] = key.TableID
-		ctx.Params["tableEvent"] = string(key.Event)
-		return page.GetEngine().Handle(ctx, page)
+		return requestEngine.executeEvent(ctx, page, key)
 	}
 }
 
@@ -280,7 +300,12 @@ func (t *TableEngine) eventKeys() []tableEventKey {
 	}
 	sort.Slice(keys, func(i, j int) bool {
 		if keys[i].TableID == keys[j].TableID {
-			return tableEventOrder(keys[i].Event) < tableEventOrder(keys[j].Event)
+			leftOrder := tableEventOrder(keys[i].Event)
+			rightOrder := tableEventOrder(keys[j].Event)
+			if leftOrder == rightOrder {
+				return keys[i].ActionID < keys[j].ActionID
+			}
+			return leftOrder < rightOrder
 		}
 		return keys[i].TableID < keys[j].TableID
 	})
@@ -293,7 +318,13 @@ func (t *TableEngine) bindEventRoutes(pageKey string) {
 		return
 	}
 	routes := &table.TableEventRoutes{}
+	hasTableEvents := false
 	for _, key := range t.eventKeys() {
+		if key.Event == table.TableEventRowAction {
+			t.bindRowActionRoute(pageKey, key)
+			continue
+		}
+		hasTableEvents = true
 		route := &table.TableEventRoute{
 			URL:    tableEventRoutePath(pageKey, key),
 			Method: table.HTTPMethodPOST,
@@ -307,30 +338,61 @@ func (t *TableEngine) bindEventRoutes(pageKey string) {
 			routes.Pagination = route
 		}
 	}
-	t.dsl.Events = routes
+	if hasTableEvents {
+		t.dsl.Events = routes
+	} else {
+		t.dsl.Events = nil
+	}
 }
 
 func (t *TableEngine) runtimeContext(req *engine.RequestContext, key tableEventKey) (*table.TableRuntimeContext, error) {
-	payload := table.TableEventRequest{}
-	if len(req.Body) > 0 {
-		decoder := json.NewDecoder(bytes.NewReader(req.Body))
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&payload); err != nil {
-			return nil, fmt.Errorf("table engine: decode %s payload: %w", key.Event, err)
-		}
-	}
-
 	state := table.TableStateConfig{}
 	if t.dsl.State != nil {
 		state = *t.dsl.State
 	}
-	mergeTableState(&state, payload)
+	var payloadParams map[string]any
+	var extra map[string]any
+	var row map[string]any
 
-	params := make(map[string]any, len(req.Params)+len(payload.Params))
+	if key.Event == table.TableEventRowAction {
+		payload := table.TableRowActionRequest{}
+		if err := decodeTablePayload(req.Body, key.Event, &payload); err != nil {
+			return nil, err
+		}
+		if payload.Row == nil {
+			return nil, fmt.Errorf("table engine: row action %q requires row", key.ActionID)
+		}
+		if rowIDKey := t.dsl.RowIDKey; rowIDKey != "" {
+			if _, ok := payload.Row[rowIDKey]; !ok {
+				return nil, fmt.Errorf("table engine: row action %q requires row key %q", key.ActionID, rowIDKey)
+			}
+		}
+		for _, column := range t.dsl.Columns {
+			if column.Kind != table.TableColumnKindAccessor || column.AccessorKey == "" {
+				continue
+			}
+			if _, ok := payload.Row[column.AccessorKey]; !ok {
+				return nil, fmt.Errorf("table engine: row action %q requires accessor key %q", key.ActionID, column.AccessorKey)
+			}
+		}
+		payloadParams = payload.Params
+		extra = payload.Extra
+		row = payload.Row
+	} else {
+		payload := table.TableEventRequest{}
+		if err := decodeTablePayload(req.Body, key.Event, &payload); err != nil {
+			return nil, err
+		}
+		mergeTableState(&state, payload)
+		payloadParams = payload.Params
+		extra = payload.Extra
+	}
+
+	params := make(map[string]any, len(req.Params)+len(payloadParams))
 	for name, value := range req.Params {
 		params[name] = value
 	}
-	for name, value := range payload.Params {
+	for name, value := range payloadParams {
 		params[name] = value
 	}
 
@@ -339,15 +401,29 @@ func (t *TableEngine) runtimeContext(req *engine.RequestContext, key tableEventK
 		User:   req.User,
 		System: req.System,
 		Params: params,
-		Extra:  payload.Extra,
+		Extra:  extra,
 		EventTable: &table.TableEventContext{
 			TableID:   key.TableID,
 			Event:     key.Event,
+			ActionID:  key.ActionID,
+			Row:       row,
 			PageIndex: state.PageIndex,
 			PageSize:  state.PageSize,
 			Filters:   state.Filters,
 		},
 	}, nil
+}
+
+func decodeTablePayload(body []byte, event table.TableEventType, target any) error {
+	if len(body) == 0 {
+		return nil
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return fmt.Errorf("table engine: decode %s payload: %w", event, err)
+	}
+	return nil
 }
 
 func mergeTableState(state *table.TableStateConfig, payload table.TableEventRequest) {
@@ -363,6 +439,9 @@ func mergeTableState(state *table.TableStateConfig, payload table.TableEventRequ
 }
 
 func tableEventRoutePath(pageKey string, key tableEventKey) string {
+	if key.Event == table.TableEventRowAction {
+		return "/event/" + pageKey + "/table/" + key.TableID + "/row/" + key.ActionID
+	}
 	return "/event/" + pageKey + "/table/" + key.TableID + "/" + string(key.Event)
 }
 
@@ -374,7 +453,24 @@ func tableEventOrder(event table.TableEventType) int {
 		return 1
 	case table.TableEventPagination:
 		return 2
-	default:
+	case table.TableEventRowAction:
 		return 3
+	default:
+		return 4
+	}
+}
+
+func (t *TableEngine) bindRowActionRoute(pageKey string, key tableEventKey) {
+	if t.dsl.Actions == nil {
+		return
+	}
+	for i := range t.dsl.Actions.Row {
+		action := &t.dsl.Actions.Row[i]
+		if action.ID != key.ActionID {
+			continue
+		}
+		action.URL = tableEventRoutePath(pageKey, key)
+		action.Method = table.HTTPMethodPOST
+		return
 	}
 }

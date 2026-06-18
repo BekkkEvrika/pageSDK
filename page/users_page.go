@@ -1,6 +1,8 @@
 package page
 
 import (
+	"fmt"
+
 	"github.com/BekkkEvrika/pageSDK/engine"
 	"github.com/BekkkEvrika/pageSDK/engine/tableengine"
 )
@@ -39,7 +41,13 @@ func (p *UsersPage) Init(ctx *engine.BuildContext) error {
 		}).
 		OnReload(onUsersReload).
 		OnFilter(onUsersFilter).
-		OnPagination(onUsersPagination)
+		OnPagination(onUsersPagination).
+		RowAction(tableengine.ActionSchema{
+			ID:      "edit",
+			Label:   "Edit",
+			Icon:    "pencil",
+			Variant: tableengine.ActionVariantSecondary,
+		}, onUserEdit)
 
 	return nil
 }
@@ -54,6 +62,16 @@ func onUsersFilter(ctx *tableengine.TableRuntimeContext) {
 
 func onUsersPagination(ctx *tableengine.TableRuntimeContext) {
 	ctx.Table("users").SetData(usersData(ctx.EventTable.PageIndex, ctx.EventTable.PageSize))
+}
+
+func onUserEdit(ctx *tableengine.TableRuntimeContext) {
+	row := ctx.EventTable.Row
+	ctx.OpenDialog("users.edit", engine.Params{
+		"id":     fmt.Sprint(row["id"]),
+		"name":   fmt.Sprint(row["name"]),
+		"email":  fmt.Sprint(row["email"]),
+		"status": fmt.Sprint(row["status"]),
+	})
 }
 
 func usersData(pageIndex, pageSize int) tableengine.TableData {

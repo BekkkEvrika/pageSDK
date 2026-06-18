@@ -13,6 +13,16 @@ type runtimeTablePage struct {
 	called *table.TableRuntimeContext
 }
 
+type rowActionTablePage struct {
+	*TableEngine
+	called *table.TableRuntimeContext
+}
+
+type separateRowRoutesPage struct {
+	*TableEngine
+	called string
+}
+
 func (p *runtimeTablePage) Init(ctx *engine.BuildContext) error {
 	p.Table("users").
 		Columns(p.Column("id"), p.Column("name")).
@@ -30,6 +40,33 @@ func (p *runtimeTablePage) handle(ctx *table.TableRuntimeContext) {
 		PageIndex: ctx.EventTable.PageIndex,
 		PageSize:  ctx.EventTable.PageSize,
 	})
+}
+
+func (p *rowActionTablePage) Init(ctx *engine.BuildContext) error {
+	p.Table("users").
+		Columns(p.Column("id"), p.Column("name"), p.Column("enabled")).
+		RowAction(table.ActionSchema{
+			ID:    "edit",
+			Label: "Edit",
+			Icon:  "pencil",
+		}, p.handleEdit)
+	return nil
+}
+
+func (p *rowActionTablePage) handleEdit(ctx *table.TableRuntimeContext) {
+	p.called = ctx
+}
+
+func (p *separateRowRoutesPage) Init(ctx *engine.BuildContext) error {
+	p.Table("users").
+		Columns(p.Column("id"), p.Column("name")).
+		RowAction(table.ActionSchema{ID: "delete", Label: "Delete"}, func(ctx *table.TableRuntimeContext) {
+			p.called = "delete"
+		}).
+		RowAction(table.ActionSchema{ID: "edit", Label: "Edit"}, func(ctx *table.TableRuntimeContext) {
+			p.called = "edit"
+		})
+	return nil
 }
 
 func TestColumnBuildsPackageTableSchema(t *testing.T) {
@@ -351,5 +388,142 @@ func TestTableRuntimeRejectsDuplicatedStatePayload(t *testing.T) {
 	}, &runtimeTablePage{TableEngine: &TableEngine{}})
 	if err == nil {
 		t.Fatal("expected duplicated state payload error")
+	}
+}
+
+func TestTableRowActionExposesRouteInActionDSL(t *testing.T) {
+	page := &rowActionTablePage{TableEngine: &TableEngine{}}
+
+	routes := page.TableEngine.Routes("users.list", page)
+	if len(routes) != 2 {
+		t.Fatalf("routes len = %d, want render plus row action", len(routes))
+	}
+	if routes[1].Path != "/event/users.list/table/users/row/edit" {
+		t.Fatalf("row action route = %q", routes[1].Path)
+	}
+
+	render, err := page.TableEngine.Render(&engine.RequestContext{PageKey: "users.list"}, page)
+	if err != nil {
+		t.Fatalf("render returned error: %v", err)
+	}
+	dsl := render.DSL.(table.TableSchema)
+	if dsl.Events != nil {
+		t.Fatalf("row actions must not create table events object: %#v", dsl.Events)
+	}
+	if dsl.Actions == nil || len(dsl.Actions.Row) != 1 {
+		t.Fatalf("row actions missing from DSL: %#v", dsl.Actions)
+	}
+	action := dsl.Actions.Row[0]
+	if action.ID != "edit" || action.URL != "/event/users.list/table/users/row/edit" || action.Method != table.HTTPMethodPOST {
+		t.Fatalf("unexpected row action DSL: %#v", action)
+	}
+}
+
+func TestTableRowActionReceivesCurrentRowValues(t *testing.T) {
+	bootstrapPage := &rowActionTablePage{TableEngine: &TableEngine{}}
+	routes := bootstrapPage.TableEngine.Routes("users.list", bootstrapPage)
+	runtimePage := &rowActionTablePage{TableEngine: &TableEngine{}}
+
+	result, err := routes[1].Handler(&engine.RequestContext{
+		Body: []byte(`{
+			"row": {
+				"id": 7,
+				"name": "Edited name",
+				"enabled": true,
+				"quantity": 12
+			},
+			"params": {"tenantId": 17},
+			"extra": {"source": "row-button"}
+		}`),
+	}, runtimePage)
+	if err != nil {
+		t.Fatalf("row action returned error: %v", err)
+	}
+	if _, ok := result.(*engine.RuntimeResult); !ok {
+		t.Fatalf("result type = %T, want *engine.RuntimeResult", result)
+	}
+	if runtimePage.called == nil {
+		t.Fatal("row action handler was not called")
+	}
+
+	ctx := runtimePage.called
+	if ctx.EventTable.Event != table.TableEventRowAction || ctx.EventTable.ActionID != "edit" {
+		t.Fatalf("unexpected row event: %#v", ctx.EventTable)
+	}
+	if ctx.EventTable.Row["id"] != float64(7) {
+		t.Fatalf("row id = %#v", ctx.EventTable.Row["id"])
+	}
+	if ctx.EventTable.Row["name"] != "Edited name" {
+		t.Fatalf("input value was not preserved: %#v", ctx.EventTable.Row)
+	}
+	if ctx.EventTable.Row["enabled"] != true || ctx.EventTable.Row["quantity"] != float64(12) {
+		t.Fatalf("row values were not preserved: %#v", ctx.EventTable.Row)
+	}
+	if ctx.Params["tenantId"] != float64(17) || ctx.Extra["source"] != "row-button" {
+		t.Fatalf("params or extra missing: params=%#v extra=%#v", ctx.Params, ctx.Extra)
+	}
+}
+
+func TestTableRowActionRequiresRowAndRowID(t *testing.T) {
+	bootstrapPage := &rowActionTablePage{TableEngine: &TableEngine{}}
+	routes := bootstrapPage.TableEngine.Routes("users.list", bootstrapPage)
+
+	_, err := routes[1].Handler(&engine.RequestContext{
+		Body: []byte(`{"params":{}}`),
+	}, &rowActionTablePage{TableEngine: &TableEngine{}})
+	if err == nil {
+		t.Fatal("expected missing row error")
+	}
+
+	_, err = routes[1].Handler(&engine.RequestContext{
+		Body: []byte(`{"row":{"name":"No id"}}`),
+	}, &rowActionTablePage{TableEngine: &TableEngine{}})
+	if err == nil {
+		t.Fatal("expected missing row id error")
+	}
+
+	_, err = routes[1].Handler(&engine.RequestContext{
+		Body: []byte(`{"row":{"id":7,"name":"Missing enabled"}}`),
+	}, &rowActionTablePage{TableEngine: &TableEngine{}})
+	if err == nil {
+		t.Fatal("expected missing accessor key error")
+	}
+}
+
+func TestEachRowActionRouteCallsOnlyItsOwnHandler(t *testing.T) {
+	bootstrapPage := &separateRowRoutesPage{TableEngine: &TableEngine{}}
+	routes := bootstrapPage.TableEngine.Routes("users.list", bootstrapPage)
+	if len(routes) != 3 {
+		t.Fatalf("routes len = %d, want render plus two row routes", len(routes))
+	}
+
+	routeByPath := map[string]engine.RouteHandler{}
+	for _, route := range routes {
+		routeByPath[route.Path] = route.Handler
+	}
+	body := []byte(`{"row":{"id":7,"name":"Alice"}}`)
+
+	editPage := &separateRowRoutesPage{TableEngine: &TableEngine{}}
+	_, err := routeByPath["/event/users.list/table/users/row/edit"](
+		&engine.RequestContext{Body: body},
+		editPage,
+	)
+	if err != nil {
+		t.Fatalf("edit route returned error: %v", err)
+	}
+	if editPage.called != "edit" {
+		t.Fatalf("edit route called %q handler", editPage.called)
+	}
+
+	deletePage := &separateRowRoutesPage{TableEngine: &TableEngine{}}
+	_, err = routeByPath["/event/users.list/table/users/row/delete"](
+		&engine.RequestContext{Body: body},
+		deletePage,
+	)
+	if err != nil {
+		t.Fatalf("delete route returned error: %v", err)
+	}
+	if deletePage.called != "delete" {
+		t.Fatalf("delete route called %q handler", deletePage.called)
 	}
 }

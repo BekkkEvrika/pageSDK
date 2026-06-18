@@ -166,6 +166,24 @@ func (b *Builder) OnPagination(handler TableEventHandler) *Builder {
 	return b.on(TableEventPagination, handler)
 }
 
+// RowAction appends a row action and registers its handler.
+func (b *Builder) RowAction(action ActionSchema, handler TableEventHandler) *Builder {
+	if action.ID == "" || handler == nil || b.registrar == nil || b.tableID == "" {
+		return b
+	}
+	if action.Label == "" {
+		action.Label = titleFromName(action.ID)
+	}
+	actions := b.schema.Actions
+	if actions == nil {
+		actions = &TableActionGroups{}
+		b.schema.Actions = actions
+	}
+	actions.Row = append(actions.Row, action)
+	b.registrar.RegisterRowActionHandler(b.tableID, action.ID, handler)
+	return b
+}
+
 // SetTitle sets the table title.
 func (b *Builder) SetTitle(title string) {
 	b.Title(title)

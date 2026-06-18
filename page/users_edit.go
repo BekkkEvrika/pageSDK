@@ -95,7 +95,20 @@ func (p *UsersEditPage) Init(ctx *engine.BuildContext) error {
 	if err != nil {
 		return err
 	}
+	name.SetDefaultValue(ctx.Params["name"])
 	name.SetOnChange(OnNameChange)
+
+	email, err := p.GetTextById("email")
+	if err != nil {
+		return err
+	}
+	email.SetDefaultValue(ctx.Params["email"])
+
+	status, err := p.GetTextById("status")
+	if err != nil {
+		return err
+	}
+	status.SetDefaultValue(ctx.Params["status"])
 	return nil
 }
 

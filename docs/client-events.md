@@ -155,6 +155,7 @@ Client rules:
 - an event key is omitted when its backend handler is not registered;
 - `features.reload`, `features.filtering`, and `features.pagination` are enabled
   automatically when the corresponding handler is registered.
+- row action URLs are exposed separately in `dsl.actions.row`.
 
 ## Table event payload
 
@@ -347,6 +348,122 @@ func OnUsersPagination(ctx *tableengine.TableRuntimeContext) {
 
 The client must replace the table data at the mutation path and must not treat
 the response as a form mutation.
+
+## Table row actions
+
+Each registered row action is exposed in `dsl.actions.row` with its exact URL
+and HTTP method:
+
+```json
+{
+  "actions": {
+    "row": [
+      {
+        "id": "edit",
+        "label": "Edit",
+        "icon": "pencil",
+        "variant": "secondary",
+        "url": "/event/users.list/table/users/row/edit",
+        "method": "POST"
+      }
+    ]
+  }
+}
+```
+
+The client must call the `url` from the selected action. Do not construct the
+row action URL manually.
+
+Every row action is registered as a separate static backend route:
+
+```text
+POST /event/users.list/table/users/row/edit
+POST /event/users.list/table/users/row/delete
+POST /event/users.list/table/users/row/archive
+```
+
+There is no shared wildcard row-action route and no action dispatcher selected
+from the request body. The route itself is permanently bound to one handler.
+The client must not send `actionId` in the payload.
+
+### Row action payload
+
+```ts
+type TableRowActionRequest = {
+  row: Record<string, unknown>
+  params?: Record<string, unknown>
+  extra?: Record<string, unknown>
+}
+```
+
+`row` rules:
+
+- `row` is required;
+- it must contain the complete current row object, not only the row id;
+- it must contain the key configured by `dsl.rowIdKey`, which is `id` by
+  default;
+- every property must be sent under its column/accessor key;
+- if a row cell contains an input, editor, checkbox, select, date control, or
+  another editable value, `row` must contain its current UI value;
+- the client must update its row model from active editors before sending the
+  action;
+- do not send a separate form `elements` payload for row actions.
+
+Example: the user changed the `name`, `enabled`, and `quantity` inputs before
+clicking the `edit` row action:
+
+```http
+POST /event/users.list/table/users/row/edit
+Content-Type: application/json
+```
+
+```json
+{
+  "row": {
+    "id": 7,
+    "name": "Edited name",
+    "email": "edited@example.com",
+    "status": "active",
+    "enabled": true,
+    "quantity": 12
+  },
+  "params": {
+    "tenantId": 17
+  },
+  "extra": {
+    "source": "row-button"
+  }
+}
+```
+
+The backend receives the action id and row values through the specialized
+table context:
+
+```go
+func OnUserEdit(ctx *tableengine.TableRuntimeContext) {
+	actionID := ctx.EventTable.ActionID
+	row := ctx.EventTable.Row
+
+	id := row["id"]
+	name := row["name"]
+	enabled := row["enabled"]
+
+	_ = actionID
+	_ = id
+	_ = name
+	_ = enabled
+}
+```
+
+The backend rejects the request when:
+
+- `row` is missing;
+- the configured `rowIdKey` is absent;
+- an accessor key declared by a table column is absent;
+- the JSON contains unknown top-level fields.
+
+The response is the same `RuntimeResult` used by other table events. A row
+action handler may return mutations or navigation actions.
 
 ## Form event payload
 

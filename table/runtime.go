@@ -13,6 +13,7 @@ const (
 	TableEventReload     TableEventType = "reload"
 	TableEventFilter     TableEventType = "filter"
 	TableEventPagination TableEventType = "pagination"
+	TableEventRowAction  TableEventType = "rowAction"
 )
 
 // TableEventHandler handles one table runtime event.
@@ -21,6 +22,7 @@ type TableEventHandler func(ctx *TableRuntimeContext)
 // TableEventRegistrar is implemented by TableEngine.
 type TableEventRegistrar interface {
 	RegisterTableHandler(tableID string, event TableEventType, handler TableEventHandler)
+	RegisterRowActionHandler(tableID, actionID string, handler TableEventHandler)
 }
 
 // TableEventRequest is the typed client payload for table runtime events.
@@ -32,10 +34,19 @@ type TableEventRequest struct {
 	Extra     map[string]any     `json:"extra,omitempty"`
 }
 
+// TableRowActionRequest is the typed client payload for row actions.
+type TableRowActionRequest struct {
+	Row    map[string]any `json:"row"`
+	Params map[string]any `json:"params,omitempty"`
+	Extra  map[string]any `json:"extra,omitempty"`
+}
+
 // TableEventContext describes the table and state that triggered an event.
 type TableEventContext struct {
 	TableID   string             `json:"tableId"`
 	Event     TableEventType     `json:"event"`
+	ActionID  string             `json:"actionId,omitempty"`
+	Row       map[string]any     `json:"row,omitempty"`
 	PageIndex int                `json:"pageIndex,omitempty"`
 	PageSize  int                `json:"pageSize,omitempty"`
 	Filters   []TableFilterState `json:"filters,omitempty"`
