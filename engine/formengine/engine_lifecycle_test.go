@@ -10,6 +10,7 @@ import (
 	"github.com/BekkkEvrika/pageSDK/engine"
 	"github.com/BekkkEvrika/pageSDK/engine/tableengine"
 	inputs "github.com/BekkkEvrika/pageSDK/form"
+	"github.com/BekkkEvrika/pageSDK/table"
 )
 
 type BuildContext = engine.BuildContext
@@ -18,7 +19,7 @@ type RequestContext = engine.RequestContext
 type RenderResult = engine.RenderResult
 type RouteHandler = engine.RouteHandler
 type RuntimeResult = engine.RuntimeResult
-type TableDSL = tableengine.TableDSL
+type TableDSL = table.TableSchema
 type TableEngine = tableengine.TableEngine
 
 const MutationAdd = engine.MutationAdd
@@ -57,11 +58,15 @@ type testFormEventPage struct {
 }
 
 func (p *testFormEventPage) Init(ctx *BuildContext) error {
-	save := p.Button("save")
-	save.SetOnClick(testOnSave)
+	p.Button("save").
+		Label("Save").
+		Variant("primary").
+		OnClick(testOnSave)
 
-	name := p.Text("name")
-	name.SetOnChange(testOnNameChange)
+	p.Text("name").
+		Label("Name").
+		Placeholder("Enter name").
+		OnChange(testOnNameChange)
 	p.Text("saved")
 	p.Text("changed")
 
@@ -86,10 +91,6 @@ type testFormRuntimeErrorPage struct {
 
 type testNavigationCallbackPage struct {
 	*FormEngine
-}
-
-type testTableRuntimeErrorPage struct {
-	*TableEngine
 }
 
 func (p *testMissingRuntimeControlPage) Init(ctx *BuildContext) error {
@@ -122,16 +123,6 @@ func (p *testNavigationCallbackPage) Init(ctx *BuildContext) error {
 			Callback: onUserSelected,
 		})
 	})
-	return nil
-}
-
-func (p *testTableRuntimeErrorPage) Init(ctx *BuildContext) error {
-	p.Column("request", "Request")
-	return nil
-}
-
-func (p *testTableRuntimeErrorPage) HandleEvent(ctx *tableengine.RuntimeContext, event tableengine.Event) error {
-	ctx.SetError(errors.New("table handler failed"))
 	return nil
 }
 
@@ -1078,7 +1069,11 @@ func rootHasField(root *inputs.Container, id string) bool {
 
 func TestTableRouteUsesRequestEngineInstance(t *testing.T) {
 	bootstrapEngine := &TableEngine{}
-	route := bootstrapEngine.Routes("test.table", nil)[0]
+	routes := bootstrapEngine.Routes("test.table", nil)
+	if len(routes) != 1 {
+		t.Fatalf("table engine routes len = %d, want 1 render route", len(routes))
+	}
+	route := routes[0]
 	page := &testTablePage{TableEngine: &TableEngine{}}
 
 	result, err := route.Handler(&RequestContext{}, page)
@@ -1094,28 +1089,10 @@ func TestTableRouteUsesRequestEngineInstance(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected table DSL, got %T", render.DSL)
 	}
-	if len(table.Columns) != 1 || table.Columns[0].Key != "request" {
+	if len(table.Columns) != 1 || table.Columns[0].ID != "request" {
 		t.Fatalf("expected request engine column, got %#v", table.Columns)
 	}
 	if bootstrapTable := bootstrapEngine.DSL().(TableDSL); len(bootstrapTable.Columns) != 0 {
 		t.Fatalf("bootstrap engine should not own request DSL: %#v", bootstrapTable)
-	}
-}
-
-func TestTableEngineReturnsRuntimeContextError(t *testing.T) {
-	page := &testTableRuntimeErrorPage{TableEngine: &TableEngine{}}
-	handler := page.TableEngine.Routes("test.table", page)[1].Handler
-
-	_, err := handler(&RequestContext{
-		Params: Params{
-			"component": "table",
-			"action":    "rowClick",
-		},
-	}, &testTableRuntimeErrorPage{TableEngine: &TableEngine{}})
-	if err == nil {
-		t.Fatal("expected runtime context error")
-	}
-	if got := err.Error(); got != "table handler failed" {
-		t.Fatalf("unexpected error: %v", err)
 	}
 }

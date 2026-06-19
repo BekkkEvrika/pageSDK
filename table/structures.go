@@ -1,13 +1,14 @@
 package table
 
 type TableSchema struct {
+	ID                string                `json:"id"`
 	Title             string                `json:"title,omitempty"`
 	RequestURL        string                `json:"requestUrl,omitempty"`
 	Columns           []TableColumnSchema   `json:"columns"`
 	Features          *TableFeatureConfig   `json:"features,omitempty"`
+	Events            *TableEventRoutes     `json:"events,omitempty"`
 	Actions           *TableActionGroups    `json:"actions,omitempty"`
 	Selection         *TableSelectionSchema `json:"selection,omitempty"`
-	Hotkeys           []TableHotkeySchema   `json:"hotkeys,omitempty"`
 	RowIDKey          string                `json:"rowIdKey,omitempty"`
 	State             *TableStateConfig     `json:"state,omitempty"`
 	Data              *TableData            `json:"data,omitempty"`
@@ -16,11 +17,25 @@ type TableSchema struct {
 	SubRowsRequestURL string                `json:"subRowsRequestUrl,omitempty"`
 }
 
+type TableEventRoutes struct {
+	Reload     *TableEventRoute `json:"reload,omitempty"`
+	Filter     *TableEventRoute `json:"filter,omitempty"`
+	Pagination *TableEventRoute `json:"pagination,omitempty"`
+}
+
+type TableEventRoute struct {
+	URL    string     `json:"url"`
+	Method HTTPMethod `json:"method"`
+}
+
 type TableColumnSchema struct {
 	ID          string          `json:"id"`
 	Header      string          `json:"header"`
 	Kind        TableColumnKind `json:"kind,omitempty"`
 	AccessorKey string          `json:"accessorKey,omitempty"`
+	Actions     []ActionSchema  `json:"actions,omitempty"`
+
+	Hidden bool `json:"hidden,omitempty"`
 
 	Sortable   bool `json:"sortable,omitempty"`
 	Filterable bool `json:"filterable,omitempty"`
@@ -36,7 +51,13 @@ type TableColumnSchema struct {
 	DataType TableColumnDataType `json:"dataType,omitempty"`
 	CellType TableColumnCellType `json:"cellType,omitempty"`
 
-	Format *TableColumnFormat `json:"format,omitempty"`
+	Format      *TableColumnFormat         `json:"format,omitempty"`
+	ValueStyles map[string]TableValueStyle `json:"valueStyles,omitempty"`
+}
+
+// TableValueStyle describes how a concrete cell value should be rendered.
+type TableValueStyle struct {
+	Variant TableCellVariant `json:"variant"`
 }
 
 type TableData struct {
@@ -49,7 +70,6 @@ type TableData struct {
 type TableActionGroups struct {
 	Toolbar  []ActionSchema `json:"toolbar,omitempty"`
 	Row      []ActionSchema `json:"row,omitempty"`
-	Column   []ActionSchema `json:"column,omitempty"`
 	Selected []ActionSchema `json:"selected,omitempty"`
 }
 
@@ -60,9 +80,11 @@ type ActionSchema struct {
 	Variant ActionVariant `json:"variant,omitempty"`
 	URL     string        `json:"url,omitempty"`
 	Method  HTTPMethod    `json:"method,omitempty"`
+	Hotkey  string        `json:"hotkey,omitempty"`
 }
 
 type TableFeatureConfig struct {
+	Reload        bool `json:"reload,omitempty"`
 	Sorting       bool `json:"sorting,omitempty"`
 	Filtering     bool `json:"filtering,omitempty"`
 	GlobalSearch  bool `json:"globalSearch,omitempty"`
@@ -79,15 +101,6 @@ type TableSelectionSchema struct {
 	PersistAcrossPages bool               `json:"persistAcrossPages,omitempty"`
 	SelectOnRowClick   bool               `json:"selectOnRowClick,omitempty"`
 	AllowDeselect      bool               `json:"allowDeselect,omitempty"`
-}
-
-type TableHotkeySchema struct {
-	Key            string           `json:"key"`
-	ActionID       string           `json:"actionId"`
-	Scope          TableHotkeyScope `json:"scope,omitempty"`
-	Description    string           `json:"description,omitempty"`
-	Enabled        bool             `json:"enabled,omitempty"`
-	PreventDefault bool             `json:"preventDefault,omitempty"`
 }
 
 type TableColumnFormat struct {

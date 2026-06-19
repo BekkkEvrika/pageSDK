@@ -2,6 +2,9 @@
 
 This document describes how a frontend client should work with pageSDK event routes.
 
+For installation, backend page development, lifecycle and production guidance,
+see the [pageSDK user guide](user-guide.md).
+
 ## Core idea
 
 The backend uses static, deterministic event routes generated during bootstrap.
@@ -109,6 +112,618 @@ Do not build dynamic wildcard URLs such as:
 ```
 
 Those are not client-facing routes for `FormEngine`.
+
+## Table event route discovery
+
+For table pages, the rendered DSL exposes the table id and only the registered
+runtime event routes under `dsl.events`.
+
+Example:
+
+```json
+{
+  "pageKey": "users.list",
+  "engine": "table",
+  "dsl": {
+    "id": "users",
+    "columns": [],
+    "features": {
+      "reload": true,
+      "filtering": true,
+      "pagination": true
+    },
+    "events": {
+      "reload": {
+        "url": "/event/users.list/table/users/reload",
+        "method": "POST"
+      },
+      "filter": {
+        "url": "/event/users.list/table/users/filter",
+        "method": "POST"
+      },
+      "pagination": {
+        "url": "/event/users.list/table/users/pagination",
+        "method": "POST"
+      }
+    }
+  }
+}
+```
+
+Client rules:
+
+- use `dsl.id` as the stable table id;
+- call the exact `url` and `method` from `dsl.events`;
+- do not construct table event URLs on the frontend;
+- an event key is omitted when its backend handler is not registered;
+- `features.reload`, `features.filtering`, and `features.pagination` are enabled
+  automatically when the corresponding handler is registered.
+- toolbar action URLs are exposed in `dsl.actions.toolbar`.
+- row action URLs are exposed separately in `dsl.actions.row`.
+
+## Hidden table columns
+
+`hidden` defines a schema-level initial visibility. A hidden column remains in
+`dsl.columns`, and its accessor value remains in every row:
+
+```json
+{
+  "id": "id",
+  "header": "ID",
+  "kind": "accessor",
+  "accessorKey": "id",
+  "hidden": true
+}
+```
+
+The frontend must:
+
+- initialize column visibility to `false` when `column.hidden === true`;
+- keep the column in the schema and keep its value in row objects;
+- continue using hidden fields for `rowIdKey`, actions, selection, and payloads;
+- treat `state.columnVisibility` as runtime/user state, not as a replacement
+  for the schema default.
+
+`hidden` and `hideable` have different meanings:
+
+- `hidden` controls initial visibility;
+- `hideable` controls whether the user can manage the column in the visibility
+  UI.
+
+When `hideable` is `false`, the frontend must not show that column in the
+column-visibility controls. A system column can therefore use
+`hidden: true` with `hideable: false`.
+
+## Table value styles
+
+Badge and status columns can declare a visual variant for each concrete value:
+
+```go
+p.Column("status").
+    CellType(tableengine.TableColumnCellTypeBadge).
+    ValueStyle("active", tableengine.TableCellVariantSuccess).
+    ValueStyle("inactive", tableengine.TableCellVariantDanger).
+    ValueStyle("pending", tableengine.TableCellVariantWarning)
+```
+
+The rendered column contains value-based style rules:
+
+```json
+{
+  "id": "status",
+  "cellType": "badge",
+  "valueStyles": {
+    "active": {"variant": "success"},
+    "inactive": {"variant": "danger"},
+    "pending": {"variant": "warning"}
+  }
+}
+```
+
+The frontend selects `column.valueStyles[String(cellValue)]`. When no rule
+exists, it renders the cell using its default style.
+
+## Table toolbar actions
+
+Multiple toolbar actions can be registered together with the fluent action
+builder:
+
+```go
+p.Table("users").
+    ToolbarActions(
+        p.Action("refresh", onRefresh).Icon("refresh").Hotkey("F5"),
+        p.Action("clear", onClear).Icon("trash"),
+    )
+```
+
+Each registered toolbar action is exposed in `dsl.actions.toolbar` with its
+exact backend route:
+
+```json
+{
+  "actions": {
+    "toolbar": [
+      {
+        "id": "refresh",
+        "label": "Refresh",
+        "icon": "refresh",
+        "hotkey": "F5",
+        "url": "/event/users.list/table/users/toolbar/refresh",
+        "method": "POST"
+      }
+    ]
+  }
+}
+```
+
+Every toolbar action has its own static route:
+
+```text
+POST /event/users.list/table/users/toolbar/refresh
+POST /event/users.list/table/users/toolbar/export
+```
+
+The frontend may call the action URL with an empty body. If it sends a body,
+the backend ignores it: `actionId`, row data, form elements, pagination,
+filters, and other table state are not passed to the handler. The route is
+already permanently bound to the correct handler.
+
+Toolbar handlers execute backend commands using server-side context such as the
+current user, system keys, page params, repositories, and services. If the
+result changes the visible table, the handler returns a table data mutation.
+Pagination, filtering, and reload remain separate table events with their own
+payloads.
+
+## Table column actions
+
+Actions bound to a concrete column are exposed inside that column's
+`dsl.columns[].actions` list:
+
+```go
+p.Table("users").Columns(
+    p.Column("name").
+        Searchable(true).
+        AddAction(onNormalizeName, "normalize"),
+    p.Column("email").
+        AddAction(onNormalizeEmail, "normalize"),
+)
+```
+
+```json
+{
+  "id": "name",
+  "header": "Name",
+  "actions": [
+    {
+      "id": "normalize_names",
+      "label": "Normalize Names",
+      "url": "/event/users.list/table/users/column/name/normalize_names",
+      "method": "POST"
+    }
+  ]
+}
+```
+
+Each column has its own action list and handler routes. Different columns may
+use the same action id because the column id is part of the route and backend
+handler key.
+
+The frontend sends the current values of the active column as a map. Each key
+is the unique row identifier from `dsl.rowIdKey`; each value is the current
+cell value for that row.
+
+```ts
+type TableColumnActionRequest = {
+  column: Record<string, unknown>
+}
+```
+
+```http
+POST /event/users.list/table/users/column/name/normalize_names
+Content-Type: application/json
+```
+
+```json
+{
+  "column": {
+    "1": "Behzod",
+    "2": "Ali",
+    "3": "Madina"
+  }
+}
+```
+
+The backend handler reads these values from `ctx.EventTable.Column`. The
+concrete column id is available as `ctx.EventTable.ColumnID`. The payload must
+not contain `actionId` or `columnId`; the static route identifies both.
+
+## Table selected actions
+
+Each selected-row action is exposed in `dsl.actions.selected` with its own
+static route:
+
+```json
+{
+  "id": "delete_selected",
+  "label": "Delete Selected",
+  "hotkey": "Delete",
+  "url": "/event/users.list/table/users/selected/delete_selected",
+  "method": "POST"
+}
+```
+
+The frontend sends only the selected values of `dsl.rowIdKey`:
+
+```ts
+type TableSelectedActionRequest = {
+  selectedRows: string[]
+}
+```
+
+```http
+POST /event/users.list/table/users/selected/delete_selected
+Content-Type: application/json
+```
+
+```json
+{
+  "selectedRows": ["1", "3"]
+}
+```
+
+The frontend converts row-key values to strings and must not send complete row
+objects. The backend handler reads the keys from
+`ctx.EventTable.SelectedRows` and loads authoritative row data on the server
+when needed.
+
+## Table action hotkeys
+
+A hotkey is an optional property of an existing action. There is no separate
+`dsl.hotkeys` list.
+
+```json
+{
+  "actions": {
+    "toolbar": [
+      {
+        "id": "refresh",
+        "label": "Refresh",
+        "hotkey": "F5"
+      }
+    ],
+    "selected": [
+      {
+        "id": "delete_selected",
+        "label": "Delete Selected",
+        "hotkey": "Delete"
+      }
+    ],
+    "row": [
+      {
+        "id": "open",
+        "label": "Open",
+        "hotkey": "Enter"
+      }
+    ]
+  }
+}
+```
+
+The client registers hotkeys from action definitions. Pressing a hotkey must
+execute the same action as clicking its button or menu item, using the same
+action URL, method, payload rules, and runtime handler.
+
+Table navigation keys such as `ArrowUp`, `ArrowDown`, `Home`, `End`, `Esc`, and
+`Ctrl+A` are frontend runtime behavior. They are not action hotkeys and must not
+be represented in the DSL.
+
+## Table event payload
+
+Table events use their own typed payload. They do not use the form event
+payload and do not send form `elements` or `sender`.
+
+```ts
+type TableEventRequest = {
+  pageIndex?: number
+  pageSize?: number
+  filters?: TableFilterState[]
+  params?: Record<string, unknown>
+  extra?: Record<string, unknown>
+}
+
+type TableFilterState = {
+  id: string
+  value: unknown
+  operator?:
+    | "eq"
+    | "neq"
+    | "contains"
+    | "startsWith"
+    | "endsWith"
+    | "gt"
+    | "gte"
+    | "lt"
+    | "lte"
+    | "between"
+    | "in"
+    | "notIn"
+}
+```
+
+Payload rules:
+
+- there is no nested `state` object;
+- do not duplicate `pageIndex`, `pageSize`, or `filters`;
+- `pageIndex` is zero-based;
+- `pageSize` is the requested number of rows;
+- `filters` is always the complete current list of active filters;
+- send `filters: []` when no filters are active;
+- `params` contains request-specific values required by the handler;
+- `extra` contains optional client metadata;
+- table id and event type are derived from the DSL event URL and must not be
+  duplicated in the JSON body.
+
+### Reload event
+
+A reload should send the current page and active filters so the backend reloads
+the same table view:
+
+```http
+POST /event/users.list/table/users/reload
+Content-Type: application/json
+```
+
+```json
+{
+  "pageIndex": 1,
+  "pageSize": 20,
+  "filters": [
+    {
+      "id": "status",
+      "value": "active",
+      "operator": "eq"
+    }
+  ],
+  "extra": {
+    "source": "reload"
+  }
+}
+```
+
+### Filter event
+
+Send the complete active filter list and reset `pageIndex` to `0`. An empty
+array means that all filters were cleared.
+
+```http
+POST /event/users.list/table/users/filter
+Content-Type: application/json
+```
+
+```json
+{
+  "pageIndex": 0,
+  "pageSize": 20,
+  "filters": [
+    {
+      "id": "name",
+      "value": "Ali",
+      "operator": "contains"
+    },
+    {
+      "id": "status",
+      "value": ["active", "pending"],
+      "operator": "in"
+    }
+  ],
+  "params": {
+    "tenantId": 17
+  }
+}
+```
+
+### Pagination event
+
+Send the requested page, page size, and the complete current filter list.
+Filters must also be sent during pagination; otherwise the backend cannot know
+that the new page belongs to a filtered result set.
+
+```http
+POST /event/users.list/table/users/pagination
+Content-Type: application/json
+```
+
+```json
+{
+  "pageIndex": 2,
+  "pageSize": 25,
+  "filters": [
+    {
+      "id": "status",
+      "value": "active",
+      "operator": "eq"
+    }
+  ],
+  "extra": {
+    "source": "pagination"
+  }
+}
+```
+
+Canonical pagination payload without active filters:
+
+```json
+{
+  "pageIndex": 2,
+  "pageSize": 25,
+  "filters": [],
+  "extra": {
+    "source": "pagination"
+  }
+}
+```
+
+Inside the backend handler these values are available through the specialized
+`TableRuntimeContext`:
+
+```go
+func OnUsersPagination(ctx *tableengine.TableRuntimeContext) {
+	pageIndex := ctx.EventTable.PageIndex
+	pageSize := ctx.EventTable.PageSize
+	filters := ctx.EventTable.Filters
+
+	rows, total := loadUsers(pageIndex, pageSize, filters)
+	ctx.Table("users").SetData(tableengine.TableData{
+		Rows:      rows,
+		Total:     total,
+		PageIndex: pageIndex,
+		PageSize:  pageSize,
+	})
+}
+```
+
+`SetData` returns a normal runtime mutation:
+
+```json
+{
+  "mutations": [
+    {
+      "type": "update",
+      "path": "tables.users.data",
+      "value": {
+        "rows": [
+          {
+            "id": 1,
+            "name": "Alice"
+          }
+        ],
+        "total": 42,
+        "pageIndex": 2,
+        "pageSize": 25
+      }
+    }
+  ]
+}
+```
+
+The client must replace the table data at the mutation path and must not treat
+the response as a form mutation.
+
+## Table row actions
+
+Each registered row action is exposed in `dsl.actions.row` with its exact URL
+and HTTP method:
+
+```json
+{
+  "actions": {
+    "row": [
+      {
+        "id": "edit",
+        "label": "Edit",
+        "icon": "pencil",
+        "variant": "secondary",
+        "url": "/event/users.list/table/users/row/edit",
+        "method": "POST"
+      }
+    ]
+  }
+}
+```
+
+The client must call the `url` from the selected action. Do not construct the
+row action URL manually.
+
+Every row action is registered as a separate static backend route:
+
+```text
+POST /event/users.list/table/users/row/edit
+POST /event/users.list/table/users/row/delete
+POST /event/users.list/table/users/row/archive
+```
+
+There is no shared wildcard row-action route and no action dispatcher selected
+from the request body. The route itself is permanently bound to one handler.
+The client must not send `actionId` in the payload.
+
+### Row action payload
+
+```ts
+type TableRowActionRequest = {
+  row: Record<string, unknown>
+  params?: Record<string, unknown>
+  extra?: Record<string, unknown>
+}
+```
+
+`row` rules:
+
+- `row` is required;
+- it must contain the complete current row object, not only the row id;
+- it must contain the key configured by `dsl.rowIdKey`, which is `id` by
+  default;
+- every property must be sent under its column/accessor key;
+- if a row cell contains an input, editor, checkbox, select, date control, or
+  another editable value, `row` must contain its current UI value;
+- the client must update its row model from active editors before sending the
+  action;
+- do not send a separate form `elements` payload for row actions.
+
+Example: the user changed the `name`, `enabled`, and `quantity` inputs before
+clicking the `edit` row action:
+
+```http
+POST /event/users.list/table/users/row/edit
+Content-Type: application/json
+```
+
+```json
+{
+  "row": {
+    "id": 7,
+    "name": "Edited name",
+    "email": "edited@example.com",
+    "status": "active",
+    "enabled": true,
+    "quantity": 12
+  },
+  "params": {
+    "tenantId": 17
+  },
+  "extra": {
+    "source": "row-button"
+  }
+}
+```
+
+The backend receives the action id and row values through the specialized
+table context:
+
+```go
+func OnUserEdit(ctx *tableengine.TableRuntimeContext) {
+	actionID := ctx.EventTable.ActionID
+	row := ctx.EventTable.Row
+
+	id := row["id"]
+	name := row["name"]
+	enabled := row["enabled"]
+
+	_ = actionID
+	_ = id
+	_ = name
+	_ = enabled
+}
+```
+
+The backend rejects the request when:
+
+- `row` is missing;
+- the configured `rowIdKey` is absent;
+- an accessor key declared by a table column is absent;
+- the JSON contains unknown top-level fields.
+
+The response is the same `RuntimeResult` used by other table events. A row
+action handler may return mutations or navigation actions.
 
 ## Form event payload
 
@@ -685,6 +1300,21 @@ The backend guarantees:
 - all UI changes are explicit mutations/navigation/dialog actions
 
 ## Important errors
+
+Form controls support fluent configuration while the existing `Set...` methods
+remain available:
+
+```go
+p.Text("name").
+    Label("User name").
+    Placeholder("Enter user name").
+    OnChange(OnNameChange)
+
+p.Button("save").
+    Label("Save").
+    Variant("primary").
+    OnClick(OnSave)
+```
 
 If a Page registers a listener for a missing component:
 

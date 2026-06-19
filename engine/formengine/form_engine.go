@@ -87,6 +87,76 @@ func (f *FormEngine) Text(id string) *Text {
 	return text
 }
 
+// Select appends a select input to the default container.
+func (f *FormEngine) Select(id string) *Select {
+	f.Field(inputs.Input{Id: id, Type: inputs.InputTypeSelect, Label: id})
+	control, _ := f.GetSelectById(id)
+	return control
+}
+
+// Date appends a date input to the default container.
+func (f *FormEngine) Date(id string) *Date {
+	f.Field(inputs.Input{Id: id, Type: inputs.InputTypeDate, Label: id})
+	control, _ := f.GetDateById(id)
+	return control
+}
+
+// Datetime appends a datetime input to the default container.
+func (f *FormEngine) Datetime(id string) *Datetime {
+	f.Field(inputs.Input{Id: id, Type: inputs.InputTypeDatetime, Label: id})
+	control, _ := f.GetDatetimeById(id)
+	return control
+}
+
+// Number appends a number input to the default container.
+func (f *FormEngine) Number(id string) *Number {
+	f.Field(inputs.Input{Id: id, Type: inputs.InputTypeNumber, Label: id})
+	control, _ := f.GetNumberById(id)
+	return control
+}
+
+// Checkbox appends a checkbox input to the default container.
+func (f *FormEngine) Checkbox(id string) *Checkbox {
+	f.Field(inputs.Input{Id: id, Type: inputs.InputTypeCheckbox, Label: id})
+	control, _ := f.GetCheckboxById(id)
+	return control
+}
+
+// Label appends a label input to the default container.
+func (f *FormEngine) Label(id string) *Label {
+	f.Field(inputs.Input{Id: id, Type: inputs.InputTypeLabel, Label: id})
+	control, _ := f.GetLabelById(id)
+	return control
+}
+
+// Search appends a search input to the default container.
+func (f *FormEngine) Search(id string) *Search {
+	f.Field(inputs.Input{Id: id, Type: inputs.InputTypeSearch, Label: id})
+	control, _ := f.GetSearchById(id)
+	return control
+}
+
+// Textarea appends a textarea input to the default container.
+func (f *FormEngine) Textarea(id string) *Textarea {
+	f.Field(inputs.Input{Id: id, Type: inputs.InputTypeTextarea, Label: id})
+	control, _ := f.GetTextareaById(id)
+	return control
+}
+
+// Hidden appends a hidden input to the default container.
+func (f *FormEngine) Hidden(id string) *Hidden {
+	f.Field(inputs.Input{Id: id, Type: inputs.InputTypeHidden, Label: id})
+	control, _ := f.GetHiddenById(id)
+	return control
+}
+
+// File appends a file input to the default container.
+func (f *FormEngine) File(id string) *File {
+	f.Field(inputs.Input{Id: id, Type: inputs.InputTypeFile, Label: id})
+	control, _ := f.GetFileById(id)
+	return control
+}
+
 // Button appends a button field and click form action to this engine instance.
 func (f *FormEngine) Button(actionID string) *Button {
 	f.Field(inputs.Input{Id: actionID, Type: inputs.InputTypeButton, Label: actionID, ActionID: actionID})
