@@ -2,6 +2,7 @@ package tableengine
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/BekkkEvrika/pageSDK/engine"
@@ -21,6 +22,26 @@ type rowActionTablePage struct {
 type separateRowRoutesPage struct {
 	*TableEngine
 	called string
+}
+
+type toolbarActionTablePage struct {
+	*TableEngine
+	called *table.TableRuntimeContext
+}
+
+type separateToolbarRoutesPage struct {
+	*TableEngine
+	called string
+}
+
+type columnActionTablePage struct {
+	*TableEngine
+	called *table.TableRuntimeContext
+}
+
+type selectedActionTablePage struct {
+	*TableEngine
+	called *table.TableRuntimeContext
 }
 
 func (p *runtimeTablePage) Init(ctx *engine.BuildContext) error {
@@ -69,6 +90,58 @@ func (p *separateRowRoutesPage) Init(ctx *engine.BuildContext) error {
 	return nil
 }
 
+func (p *toolbarActionTablePage) Init(ctx *engine.BuildContext) error {
+	p.Table("users").
+		Columns(p.Column("id"), p.Column("name")).
+		ToolbarAction(table.ActionSchema{
+			ID:      "refresh",
+			Label:   "Refresh",
+			Icon:    "refresh",
+			Hotkey:  "F5",
+			Variant: table.ActionVariantSecondary,
+		}, func(ctx *table.TableRuntimeContext) {
+			p.called = ctx
+			ctx.Table("users").SetData(table.TableData{
+				Rows:  []map[string]any{{"id": 1, "name": "Refreshed"}},
+				Total: 1,
+			})
+		})
+	return nil
+}
+
+func (p *separateToolbarRoutesPage) Init(ctx *engine.BuildContext) error {
+	p.Table("users").
+		ToolbarAction(table.ActionSchema{ID: "export", Label: "Export"}, func(ctx *table.TableRuntimeContext) {
+			p.called = "export"
+		}).
+		ToolbarAction(table.ActionSchema{ID: "refresh", Label: "Refresh"}, func(ctx *table.TableRuntimeContext) {
+			p.called = "refresh"
+		})
+	return nil
+}
+
+func (p *columnActionTablePage) Init(ctx *engine.BuildContext) error {
+	p.Table("users").
+		Columns(p.Column("id"), p.Column("name")).
+		ColumnAction(table.ActionSchema{ID: "normalize", Label: "Normalize"}, func(ctx *table.TableRuntimeContext) {
+			p.called = ctx
+		})
+	return nil
+}
+
+func (p *selectedActionTablePage) Init(ctx *engine.BuildContext) error {
+	p.Table("users").
+		Columns(p.Column("id"), p.Column("name")).
+		SelectedAction(table.ActionSchema{
+			ID:     "delete_selected",
+			Label:  "Delete Selected",
+			Hotkey: "Delete",
+		}, func(ctx *table.TableRuntimeContext) {
+			p.called = ctx
+		})
+	return nil
+}
+
 func TestColumnBuildsPackageTableSchema(t *testing.T) {
 	engine := &TableEngine{}
 
@@ -76,6 +149,8 @@ func TestColumnBuildsPackageTableSchema(t *testing.T) {
 		engine.Column("email").
 			Header("Email").
 			AccessorKey("email").
+			Hidden(true).
+			Hideable(false).
 			Sortable(true).
 			Searchable(true),
 	)
@@ -101,8 +176,22 @@ func TestColumnBuildsPackageTableSchema(t *testing.T) {
 	if got.Kind != table.TableColumnKindAccessor {
 		t.Fatalf("column Kind = %q, want accessor", got.Kind)
 	}
+	if !got.Hidden {
+		t.Fatalf("column Hidden = %v, want true", got.Hidden)
+	}
+	if got.Hideable {
+		t.Fatalf("column Hideable = %v, want false", got.Hideable)
+	}
 	if !got.Sortable || !got.Searchable {
 		t.Fatalf("column flags not preserved: sortable=%v searchable=%v", got.Sortable, got.Searchable)
+	}
+
+	encoded, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"hidden":true`) {
+		t.Fatalf("hidden column was not serialized: %s", encoded)
 	}
 }
 
@@ -120,6 +209,7 @@ func TestTableEngineSupportsRowsAndActions(t *testing.T) {
 		Label:   "Refresh",
 		Method:  table.HTTPMethodPOST,
 		Variant: table.ActionVariantSecondary,
+		Hotkey:  "F5",
 	})
 
 	dsl := engine.DSL().(table.TableSchema)
@@ -131,6 +221,21 @@ func TestTableEngineSupportsRowsAndActions(t *testing.T) {
 	}
 	if dsl.Actions == nil || len(dsl.Actions.Toolbar) != 1 {
 		t.Fatalf("toolbar actions = %#v, want one action", dsl.Actions)
+	}
+	if dsl.Actions.Toolbar[0].Hotkey != "F5" {
+		t.Fatalf("toolbar action hotkey = %q, want F5", dsl.Actions.Toolbar[0].Hotkey)
+	}
+
+	encoded, err := json.Marshal(dsl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := payload["hotkeys"]; exists {
+		t.Fatalf("table DSL must not contain a separate hotkeys field: %s", encoded)
 	}
 }
 
@@ -388,6 +493,238 @@ func TestTableRuntimeRejectsDuplicatedStatePayload(t *testing.T) {
 	}, &runtimeTablePage{TableEngine: &TableEngine{}})
 	if err == nil {
 		t.Fatal("expected duplicated state payload error")
+	}
+}
+
+func TestTableToolbarActionExposesRouteInActionDSL(t *testing.T) {
+	page := &toolbarActionTablePage{TableEngine: &TableEngine{}}
+
+	routes := page.TableEngine.Routes("users.list", page)
+	if len(routes) != 2 {
+		t.Fatalf("routes len = %d, want render plus toolbar action", len(routes))
+	}
+	if routes[1].Path != "/event/users.list/table/users/toolbar/refresh" {
+		t.Fatalf("toolbar action route = %q", routes[1].Path)
+	}
+
+	render, err := page.TableEngine.Render(&engine.RequestContext{PageKey: "users.list"}, page)
+	if err != nil {
+		t.Fatalf("render returned error: %v", err)
+	}
+	dsl := render.DSL.(table.TableSchema)
+	if dsl.Events != nil {
+		t.Fatalf("toolbar actions must not create table events object: %#v", dsl.Events)
+	}
+	if dsl.Actions == nil || len(dsl.Actions.Toolbar) != 1 {
+		t.Fatalf("toolbar actions missing from DSL: %#v", dsl.Actions)
+	}
+	action := dsl.Actions.Toolbar[0]
+	if action.ID != "refresh" ||
+		action.URL != "/event/users.list/table/users/toolbar/refresh" ||
+		action.Method != table.HTTPMethodPOST ||
+		action.Hotkey != "F5" {
+		t.Fatalf("unexpected toolbar action DSL: %#v", action)
+	}
+}
+
+func TestTableToolbarActionRunsWithoutClientPayload(t *testing.T) {
+	bootstrapPage := &toolbarActionTablePage{TableEngine: &TableEngine{}}
+	routes := bootstrapPage.TableEngine.Routes("users.list", bootstrapPage)
+	runtimePage := &toolbarActionTablePage{TableEngine: &TableEngine{}}
+
+	result, err := routes[1].Handler(&engine.RequestContext{
+		Params: engine.Params{"tenantId": "17"},
+		User:   engine.User{"id": 7},
+		System: engine.SystemKeys{"tenant": "main"},
+	}, runtimePage)
+	if err != nil {
+		t.Fatalf("toolbar action returned error: %v", err)
+	}
+	runtime, ok := result.(*engine.RuntimeResult)
+	if !ok {
+		t.Fatalf("result type = %T, want *engine.RuntimeResult", result)
+	}
+	if runtimePage.called == nil {
+		t.Fatal("toolbar action handler was not called")
+	}
+
+	ctx := runtimePage.called
+	if ctx.EventTable.Event != table.TableEventToolbarAction ||
+		ctx.EventTable.ActionID != "refresh" ||
+		ctx.EventTable.TableID != "users" {
+		t.Fatalf("unexpected toolbar event: %#v", ctx.EventTable)
+	}
+	if ctx.Params["tenantId"] != "17" || ctx.User["id"] != 7 || ctx.System["tenant"] != "main" {
+		t.Fatalf("backend context missing: params=%#v user=%#v system=%#v", ctx.Params, ctx.User, ctx.System)
+	}
+	if ctx.EventTable.Row != nil || ctx.Extra != nil {
+		t.Fatalf("toolbar action must not receive row or client extra: event=%#v extra=%#v", ctx.EventTable, ctx.Extra)
+	}
+	if len(runtime.Mutations) != 1 || runtime.Mutations[0].Path != "tables.users.data" {
+		t.Fatalf("unexpected toolbar action result: %#v", runtime)
+	}
+}
+
+func TestTableToolbarActionRejectsClientPayload(t *testing.T) {
+	bootstrapPage := &toolbarActionTablePage{TableEngine: &TableEngine{}}
+	routes := bootstrapPage.TableEngine.Routes("users.list", bootstrapPage)
+
+	_, err := routes[1].Handler(&engine.RequestContext{
+		Body: []byte(`{"pageIndex":2}`),
+	}, &toolbarActionTablePage{TableEngine: &TableEngine{}})
+	if err == nil {
+		t.Fatal("expected toolbar action payload error")
+	}
+}
+
+func TestEachToolbarActionRouteCallsOnlyItsOwnHandler(t *testing.T) {
+	bootstrapPage := &separateToolbarRoutesPage{TableEngine: &TableEngine{}}
+	routes := bootstrapPage.TableEngine.Routes("users.list", bootstrapPage)
+	if len(routes) != 3 {
+		t.Fatalf("routes len = %d, want render plus two toolbar routes", len(routes))
+	}
+
+	routeByPath := map[string]engine.RouteHandler{}
+	for _, route := range routes {
+		routeByPath[route.Path] = route.Handler
+	}
+
+	refreshPage := &separateToolbarRoutesPage{TableEngine: &TableEngine{}}
+	_, err := routeByPath["/event/users.list/table/users/toolbar/refresh"](
+		&engine.RequestContext{},
+		refreshPage,
+	)
+	if err != nil {
+		t.Fatalf("refresh route returned error: %v", err)
+	}
+	if refreshPage.called != "refresh" {
+		t.Fatalf("refresh route called %q handler", refreshPage.called)
+	}
+
+	exportPage := &separateToolbarRoutesPage{TableEngine: &TableEngine{}}
+	_, err = routeByPath["/event/users.list/table/users/toolbar/export"](
+		&engine.RequestContext{},
+		exportPage,
+	)
+	if err != nil {
+		t.Fatalf("export route returned error: %v", err)
+	}
+	if exportPage.called != "export" {
+		t.Fatalf("export route called %q handler", exportPage.called)
+	}
+}
+
+func TestTableColumnActionReceivesValuesKeyedByRowID(t *testing.T) {
+	bootstrapPage := &columnActionTablePage{TableEngine: &TableEngine{}}
+	routes := bootstrapPage.TableEngine.Routes("users.list", bootstrapPage)
+	if len(routes) != 2 || routes[1].Path != "/event/users.list/table/users/column/normalize" {
+		t.Fatalf("unexpected column action routes: %#v", routes)
+	}
+
+	render, err := bootstrapPage.TableEngine.Render(
+		&engine.RequestContext{PageKey: "users.list"},
+		bootstrapPage,
+	)
+	if err != nil {
+		t.Fatalf("render returned error: %v", err)
+	}
+	action := render.DSL.(table.TableSchema).Actions.Column[0]
+	if action.URL != "/event/users.list/table/users/column/normalize" ||
+		action.Method != table.HTTPMethodPOST {
+		t.Fatalf("unexpected column action DSL: %#v", action)
+	}
+
+	runtimePage := &columnActionTablePage{TableEngine: &TableEngine{}}
+	_, err = routes[1].Handler(&engine.RequestContext{
+		Body: []byte(`{"column":{"1":"Behzod","2":"Ali"}}`),
+	}, runtimePage)
+	if err != nil {
+		t.Fatalf("column action returned error: %v", err)
+	}
+	if runtimePage.called == nil {
+		t.Fatal("column action handler was not called")
+	}
+	ctx := runtimePage.called
+	if ctx.EventTable.Event != table.TableEventColumnAction ||
+		ctx.EventTable.ActionID != "normalize" ||
+		ctx.EventTable.Column["1"] != "Behzod" ||
+		ctx.EventTable.Column["2"] != "Ali" {
+		t.Fatalf("unexpected column action context: %#v", ctx.EventTable)
+	}
+}
+
+func TestTableColumnActionRejectsMissingColumnValues(t *testing.T) {
+	bootstrapPage := &columnActionTablePage{TableEngine: &TableEngine{}}
+	routes := bootstrapPage.TableEngine.Routes("users.list", bootstrapPage)
+
+	_, err := routes[1].Handler(
+		&engine.RequestContext{Body: []byte(`{"column":{}}`)},
+		&columnActionTablePage{TableEngine: &TableEngine{}},
+	)
+	if err == nil {
+		t.Fatal("expected missing column values error")
+	}
+}
+
+func TestTableSelectedActionReceivesRowKeys(t *testing.T) {
+	bootstrapPage := &selectedActionTablePage{TableEngine: &TableEngine{}}
+	routes := bootstrapPage.TableEngine.Routes("users.list", bootstrapPage)
+	if len(routes) != 2 || routes[1].Path != "/event/users.list/table/users/selected/delete_selected" {
+		t.Fatalf("unexpected selected action routes: %#v", routes)
+	}
+
+	render, err := bootstrapPage.TableEngine.Render(
+		&engine.RequestContext{PageKey: "users.list"},
+		bootstrapPage,
+	)
+	if err != nil {
+		t.Fatalf("render returned error: %v", err)
+	}
+	action := render.DSL.(table.TableSchema).Actions.Selected[0]
+	if action.URL != "/event/users.list/table/users/selected/delete_selected" ||
+		action.Method != table.HTTPMethodPOST ||
+		action.Hotkey != "Delete" {
+		t.Fatalf("unexpected selected action DSL: %#v", action)
+	}
+
+	runtimePage := &selectedActionTablePage{TableEngine: &TableEngine{}}
+	_, err = routes[1].Handler(&engine.RequestContext{
+		Body: []byte(`{"selectedRows":["1","2"]}`),
+	}, runtimePage)
+	if err != nil {
+		t.Fatalf("selected action returned error: %v", err)
+	}
+	if runtimePage.called == nil {
+		t.Fatal("selected action handler was not called")
+	}
+	ctx := runtimePage.called
+	if ctx.EventTable.Event != table.TableEventSelectedAction ||
+		ctx.EventTable.ActionID != "delete_selected" ||
+		len(ctx.EventTable.SelectedRows) != 2 ||
+		ctx.EventTable.SelectedRows[0] != "1" ||
+		ctx.EventTable.SelectedRows[1] != "2" {
+		t.Fatalf("unexpected selected action context: %#v", ctx.EventTable)
+	}
+}
+
+func TestTableSelectedActionRejectsMissingOrEmptyRowKeys(t *testing.T) {
+	bootstrapPage := &selectedActionTablePage{TableEngine: &TableEngine{}}
+	routes := bootstrapPage.TableEngine.Routes("users.list", bootstrapPage)
+
+	_, err := routes[1].Handler(
+		&engine.RequestContext{Body: []byte(`{"selectedRows":[]}`)},
+		&selectedActionTablePage{TableEngine: &TableEngine{}},
+	)
+	if err == nil {
+		t.Fatal("expected missing selected rows error")
+	}
+
+	_, err = routes[1].Handler(
+		&engine.RequestContext{Body: []byte(`{"selectedRows":["1",""]}`)},
+		&selectedActionTablePage{TableEngine: &TableEngine{}},
+	)
+	if err == nil {
+		t.Fatal("expected empty selected row key error")
 	}
 }
 

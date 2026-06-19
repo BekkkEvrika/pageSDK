@@ -11,7 +11,6 @@ type TableActionGroups = table.TableActionGroups
 type ActionSchema = table.ActionSchema
 type TableFeatureConfig = table.TableFeatureConfig
 type TableSelectionSchema = table.TableSelectionSchema
-type TableHotkeySchema = table.TableHotkeySchema
 type TableColumnFormat = table.TableColumnFormat
 type TableStateConfig = table.TableStateConfig
 type TableSortingItem = table.TableSortingItem
@@ -25,7 +24,6 @@ type TableColumnFormatType = table.TableColumnFormatType
 type ActionVariant = table.ActionVariant
 type HTTPMethod = table.HTTPMethod
 type TableSelectionMode = table.TableSelectionMode
-type TableHotkeyScope = table.TableHotkeyScope
 type TableFilterOperator = table.TableFilterOperator
 
 const (
@@ -80,11 +78,6 @@ const (
 
 	TableSelectionModeSingle   = table.TableSelectionModeSingle
 	TableSelectionModeMultiple = table.TableSelectionModeMultiple
-
-	TableHotkeyScopeTable     = table.TableHotkeyScopeTable
-	TableHotkeyScopeRow       = table.TableHotkeyScopeRow
-	TableHotkeyScopeSelection = table.TableHotkeyScopeSelection
-	TableHotkeyScopeGlobal    = table.TableHotkeyScopeGlobal
 
 	TableFilterOperatorEq         = table.TableFilterOperatorEq
 	TableFilterOperatorNeq        = table.TableFilterOperatorNeq

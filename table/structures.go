@@ -9,7 +9,6 @@ type TableSchema struct {
 	Events            *TableEventRoutes     `json:"events,omitempty"`
 	Actions           *TableActionGroups    `json:"actions,omitempty"`
 	Selection         *TableSelectionSchema `json:"selection,omitempty"`
-	Hotkeys           []TableHotkeySchema   `json:"hotkeys,omitempty"`
 	RowIDKey          string                `json:"rowIdKey,omitempty"`
 	State             *TableStateConfig     `json:"state,omitempty"`
 	Data              *TableData            `json:"data,omitempty"`
@@ -34,6 +33,8 @@ type TableColumnSchema struct {
 	Header      string          `json:"header"`
 	Kind        TableColumnKind `json:"kind,omitempty"`
 	AccessorKey string          `json:"accessorKey,omitempty"`
+
+	Hidden bool `json:"hidden,omitempty"`
 
 	Sortable   bool `json:"sortable,omitempty"`
 	Filterable bool `json:"filterable,omitempty"`
@@ -73,6 +74,7 @@ type ActionSchema struct {
 	Variant ActionVariant `json:"variant,omitempty"`
 	URL     string        `json:"url,omitempty"`
 	Method  HTTPMethod    `json:"method,omitempty"`
+	Hotkey  string        `json:"hotkey,omitempty"`
 }
 
 type TableFeatureConfig struct {
@@ -93,15 +95,6 @@ type TableSelectionSchema struct {
 	PersistAcrossPages bool               `json:"persistAcrossPages,omitempty"`
 	SelectOnRowClick   bool               `json:"selectOnRowClick,omitempty"`
 	AllowDeselect      bool               `json:"allowDeselect,omitempty"`
-}
-
-type TableHotkeySchema struct {
-	Key            string           `json:"key"`
-	ActionID       string           `json:"actionId"`
-	Scope          TableHotkeyScope `json:"scope,omitempty"`
-	Description    string           `json:"description,omitempty"`
-	Enabled        bool             `json:"enabled,omitempty"`
-	PreventDefault bool             `json:"preventDefault,omitempty"`
 }
 
 type TableColumnFormat struct {

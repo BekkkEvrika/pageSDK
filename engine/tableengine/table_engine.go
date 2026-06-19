@@ -103,19 +103,29 @@ func (t *TableEngine) Actions(actions table.TableActionGroups) *table.Builder {
 	return t.builder().Actions(actions)
 }
 
+// ToolbarAction appends a toolbar action and registers its handler.
+func (t *TableEngine) ToolbarAction(action table.ActionSchema, handler table.TableEventHandler) *table.Builder {
+	return t.builder().ToolbarAction(action, handler)
+}
+
 // RowAction appends a row action and registers its handler.
 func (t *TableEngine) RowAction(action table.ActionSchema, handler table.TableEventHandler) *table.Builder {
 	return t.builder().RowAction(action, handler)
 }
 
+// ColumnAction appends a column action and registers its handler.
+func (t *TableEngine) ColumnAction(action table.ActionSchema, handler table.TableEventHandler) *table.Builder {
+	return t.builder().ColumnAction(action, handler)
+}
+
+// SelectedAction appends an action for selected rows and registers its handler.
+func (t *TableEngine) SelectedAction(action table.ActionSchema, handler table.TableEventHandler) *table.Builder {
+	return t.builder().SelectedAction(action, handler)
+}
+
 // Selection replaces the selection config.
 func (t *TableEngine) Selection(selection table.TableSelectionSchema) *table.Builder {
 	return t.builder().Selection(selection)
-}
-
-// Hotkeys replaces table hotkeys.
-func (t *TableEngine) Hotkeys(hotkeys ...table.TableHotkeySchema) *table.Builder {
-	return t.builder().Hotkeys(hotkeys...)
 }
 
 // State replaces the initial table state.
@@ -150,6 +160,18 @@ func (t *TableEngine) AddToolbarAction(action table.ActionSchema) {
 func (t *TableEngine) AddRowAction(action table.ActionSchema) {
 	t.ensureDSL()
 	t.dsl.AddRowAction(action)
+}
+
+// AddColumnAction appends a column action.
+func (t *TableEngine) AddColumnAction(action table.ActionSchema) {
+	t.ensureDSL()
+	t.dsl.AddColumnAction(action)
+}
+
+// AddSelectedAction appends an action for selected rows.
+func (t *TableEngine) AddSelectedAction(action table.ActionSchema) {
+	t.ensureDSL()
+	t.dsl.AddSelectedAction(action)
 }
 
 // DSL returns the table DSL owned by this engine instance.
@@ -264,6 +286,50 @@ func (t *TableEngine) RegisterRowActionHandler(tableID, actionID string, handler
 	}] = handler
 }
 
+// RegisterToolbarActionHandler registers a toolbar action handler.
+func (t *TableEngine) RegisterToolbarActionHandler(tableID, actionID string, handler table.TableEventHandler) {
+	if handler == nil || tableID == "" || actionID == "" {
+		return
+	}
+	if t.handlers == nil {
+		t.handlers = map[tableEventKey]table.TableEventHandler{}
+	}
+	t.handlers[tableEventKey{
+		TableID:  tableID,
+		Event:    table.TableEventToolbarAction,
+		ActionID: actionID,
+	}] = handler
+}
+
+// RegisterColumnActionHandler registers a column action handler.
+func (t *TableEngine) RegisterColumnActionHandler(tableID, actionID string, handler table.TableEventHandler) {
+	t.registerActionHandler(tableID, actionID, table.TableEventColumnAction, handler)
+}
+
+// RegisterSelectedActionHandler registers a selected-row action handler.
+func (t *TableEngine) RegisterSelectedActionHandler(tableID, actionID string, handler table.TableEventHandler) {
+	t.registerActionHandler(tableID, actionID, table.TableEventSelectedAction, handler)
+}
+
+func (t *TableEngine) registerActionHandler(
+	tableID string,
+	actionID string,
+	event table.TableEventType,
+	handler table.TableEventHandler,
+) {
+	if handler == nil || tableID == "" || actionID == "" {
+		return
+	}
+	if t.handlers == nil {
+		t.handlers = map[tableEventKey]table.TableEventHandler{}
+	}
+	t.handlers[tableEventKey{
+		TableID:  tableID,
+		Event:    event,
+		ActionID: actionID,
+	}] = handler
+}
+
 func (t *TableEngine) ensureDSL() {
 	if t.dsl.Columns == nil {
 		t.dsl = table.New()
@@ -320,8 +386,18 @@ func (t *TableEngine) bindEventRoutes(pageKey string) {
 	routes := &table.TableEventRoutes{}
 	hasTableEvents := false
 	for _, key := range t.eventKeys() {
-		if key.Event == table.TableEventRowAction {
+		switch key.Event {
+		case table.TableEventRowAction:
 			t.bindRowActionRoute(pageKey, key)
+			continue
+		case table.TableEventToolbarAction:
+			t.bindToolbarActionRoute(pageKey, key)
+			continue
+		case table.TableEventColumnAction:
+			t.bindColumnActionRoute(pageKey, key)
+			continue
+		case table.TableEventSelectedAction:
+			t.bindSelectedActionRoute(pageKey, key)
 			continue
 		}
 		hasTableEvents = true
@@ -353,32 +429,51 @@ func (t *TableEngine) runtimeContext(req *engine.RequestContext, key tableEventK
 	var payloadParams map[string]any
 	var extra map[string]any
 	var row map[string]any
+	var column map[string]any
+	var selectedRows []string
 
-	if key.Event == table.TableEventRowAction {
+	switch key.Event {
+	case table.TableEventRowAction:
 		payload := table.TableRowActionRequest{}
 		if err := decodeTablePayload(req.Body, key.Event, &payload); err != nil {
 			return nil, err
 		}
-		if payload.Row == nil {
-			return nil, fmt.Errorf("table engine: row action %q requires row", key.ActionID)
-		}
-		if rowIDKey := t.dsl.RowIDKey; rowIDKey != "" {
-			if _, ok := payload.Row[rowIDKey]; !ok {
-				return nil, fmt.Errorf("table engine: row action %q requires row key %q", key.ActionID, rowIDKey)
-			}
-		}
-		for _, column := range t.dsl.Columns {
-			if column.Kind != table.TableColumnKindAccessor || column.AccessorKey == "" {
-				continue
-			}
-			if _, ok := payload.Row[column.AccessorKey]; !ok {
-				return nil, fmt.Errorf("table engine: row action %q requires accessor key %q", key.ActionID, column.AccessorKey)
-			}
+		if err := t.validateActionRow("row action", key.ActionID, payload.Row); err != nil {
+			return nil, err
 		}
 		payloadParams = payload.Params
 		extra = payload.Extra
 		row = payload.Row
-	} else {
+	case table.TableEventToolbarAction:
+		// Toolbar actions are backend commands. The static route identifies the
+		// action, so the client does not need to send a payload.
+		if len(bytes.TrimSpace(req.Body)) != 0 {
+			return nil, fmt.Errorf("table engine: toolbar action %q does not accept payload", key.ActionID)
+		}
+	case table.TableEventColumnAction:
+		payload := table.TableColumnActionRequest{}
+		if err := decodeTablePayload(req.Body, key.Event, &payload); err != nil {
+			return nil, err
+		}
+		if len(payload.Column) == 0 {
+			return nil, fmt.Errorf("table engine: column action %q requires column values", key.ActionID)
+		}
+		column = payload.Column
+	case table.TableEventSelectedAction:
+		payload := table.TableSelectedActionRequest{}
+		if err := decodeTablePayload(req.Body, key.Event, &payload); err != nil {
+			return nil, err
+		}
+		if len(payload.SelectedRows) == 0 {
+			return nil, fmt.Errorf("table engine: selected action %q requires selected rows", key.ActionID)
+		}
+		for i, selectedRow := range payload.SelectedRows {
+			if selectedRow == "" {
+				return nil, fmt.Errorf("table engine: selected action %q requires non-empty row key at index %d", key.ActionID, i)
+			}
+		}
+		selectedRows = payload.SelectedRows
+	default:
 		payload := table.TableEventRequest{}
 		if err := decodeTablePayload(req.Body, key.Event, &payload); err != nil {
 			return nil, err
@@ -403,13 +498,15 @@ func (t *TableEngine) runtimeContext(req *engine.RequestContext, key tableEventK
 		Params: params,
 		Extra:  extra,
 		EventTable: &table.TableEventContext{
-			TableID:   key.TableID,
-			Event:     key.Event,
-			ActionID:  key.ActionID,
-			Row:       row,
-			PageIndex: state.PageIndex,
-			PageSize:  state.PageSize,
-			Filters:   state.Filters,
+			TableID:      key.TableID,
+			Event:        key.Event,
+			ActionID:     key.ActionID,
+			Row:          row,
+			Column:       column,
+			SelectedRows: selectedRows,
+			PageIndex:    state.PageIndex,
+			PageSize:     state.PageSize,
+			Filters:      state.Filters,
 		},
 	}, nil
 }
@@ -439,8 +536,15 @@ func mergeTableState(state *table.TableStateConfig, payload table.TableEventRequ
 }
 
 func tableEventRoutePath(pageKey string, key tableEventKey) string {
-	if key.Event == table.TableEventRowAction {
+	switch key.Event {
+	case table.TableEventRowAction:
 		return "/event/" + pageKey + "/table/" + key.TableID + "/row/" + key.ActionID
+	case table.TableEventToolbarAction:
+		return "/event/" + pageKey + "/table/" + key.TableID + "/toolbar/" + key.ActionID
+	case table.TableEventColumnAction:
+		return "/event/" + pageKey + "/table/" + key.TableID + "/column/" + key.ActionID
+	case table.TableEventSelectedAction:
+		return "/event/" + pageKey + "/table/" + key.TableID + "/selected/" + key.ActionID
 	}
 	return "/event/" + pageKey + "/table/" + key.TableID + "/" + string(key.Event)
 }
@@ -455,8 +559,54 @@ func tableEventOrder(event table.TableEventType) int {
 		return 2
 	case table.TableEventRowAction:
 		return 3
-	default:
+	case table.TableEventToolbarAction:
 		return 4
+	case table.TableEventColumnAction:
+		return 5
+	case table.TableEventSelectedAction:
+		return 6
+	default:
+		return 7
+	}
+}
+
+func (t *TableEngine) bindToolbarActionRoute(pageKey string, key tableEventKey) {
+	if t.dsl.Actions == nil {
+		return
+	}
+	for i := range t.dsl.Actions.Toolbar {
+		action := &t.dsl.Actions.Toolbar[i]
+		if action.ID != key.ActionID {
+			continue
+		}
+		action.URL = tableEventRoutePath(pageKey, key)
+		action.Method = table.HTTPMethodPOST
+		return
+	}
+}
+
+func (t *TableEngine) bindColumnActionRoute(pageKey string, key tableEventKey) {
+	if t.dsl.Actions == nil {
+		return
+	}
+	t.bindActionRoute(t.dsl.Actions.Column, pageKey, key)
+}
+
+func (t *TableEngine) bindSelectedActionRoute(pageKey string, key tableEventKey) {
+	if t.dsl.Actions == nil {
+		return
+	}
+	t.bindActionRoute(t.dsl.Actions.Selected, pageKey, key)
+}
+
+func (t *TableEngine) bindActionRoute(actions []table.ActionSchema, pageKey string, key tableEventKey) {
+	for i := range actions {
+		if actions[i].ID != key.ActionID {
+			continue
+		}
+		actions[i].URL = tableEventRoutePath(pageKey, key)
+		actions[i].Method = table.HTTPMethodPOST
+		return
 	}
 }
 
@@ -473,4 +623,24 @@ func (t *TableEngine) bindRowActionRoute(pageKey string, key tableEventKey) {
 		action.Method = table.HTTPMethodPOST
 		return
 	}
+}
+
+func (t *TableEngine) validateActionRow(kind, actionID string, row map[string]any) error {
+	if row == nil {
+		return fmt.Errorf("table engine: %s %q requires row", kind, actionID)
+	}
+	if rowIDKey := t.dsl.RowIDKey; rowIDKey != "" {
+		if _, ok := row[rowIDKey]; !ok {
+			return fmt.Errorf("table engine: %s %q requires row key %q", kind, actionID, rowIDKey)
+		}
+	}
+	for _, column := range t.dsl.Columns {
+		if column.Kind != table.TableColumnKindAccessor || column.AccessorKey == "" {
+			continue
+		}
+		if _, ok := row[column.AccessorKey]; !ok {
+			return fmt.Errorf("table engine: %s %q requires accessor key %q", kind, actionID, column.AccessorKey)
+		}
+	}
+	return nil
 }

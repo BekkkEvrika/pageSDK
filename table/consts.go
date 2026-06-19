@@ -84,15 +84,6 @@ const (
 	TableSelectionModeMultiple TableSelectionMode = "multiple"
 )
 
-type TableHotkeyScope string
-
-const (
-	TableHotkeyScopeTable     TableHotkeyScope = "table"
-	TableHotkeyScopeRow       TableHotkeyScope = "row"
-	TableHotkeyScopeSelection TableHotkeyScope = "selection"
-	TableHotkeyScopeGlobal    TableHotkeyScope = "global"
-)
-
 type TableFilterOperator string
 
 const (

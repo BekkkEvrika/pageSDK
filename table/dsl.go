@@ -133,12 +133,6 @@ func (b *Builder) Selection(selection TableSelectionSchema) *Builder {
 	return b
 }
 
-// Hotkeys replaces table hotkeys.
-func (b *Builder) Hotkeys(hotkeys ...TableHotkeySchema) *Builder {
-	b.schema.Hotkeys = append([]TableHotkeySchema(nil), hotkeys...)
-	return b
-}
-
 // State replaces the initial table state.
 func (b *Builder) State(state TableStateConfig) *Builder {
 	b.schema.State = &state
@@ -166,6 +160,28 @@ func (b *Builder) OnPagination(handler TableEventHandler) *Builder {
 	return b.on(TableEventPagination, handler)
 }
 
+// ToolbarAction appends a toolbar action and registers its handler.
+func (b *Builder) ToolbarAction(action ActionSchema, handler TableEventHandler) *Builder {
+	if action.ID == "" || handler == nil || b.registrar == nil || b.tableID == "" {
+		return b
+	}
+	registrar, ok := b.registrar.(TableToolbarActionRegistrar)
+	if !ok {
+		return b
+	}
+	if action.Label == "" {
+		action.Label = titleFromName(action.ID)
+	}
+	actions := b.schema.Actions
+	if actions == nil {
+		actions = &TableActionGroups{}
+		b.schema.Actions = actions
+	}
+	actions.Toolbar = append(actions.Toolbar, action)
+	registrar.RegisterToolbarActionHandler(b.tableID, action.ID, handler)
+	return b
+}
+
 // RowAction appends a row action and registers its handler.
 func (b *Builder) RowAction(action ActionSchema, handler TableEventHandler) *Builder {
 	if action.ID == "" || handler == nil || b.registrar == nil || b.tableID == "" {
@@ -181,6 +197,50 @@ func (b *Builder) RowAction(action ActionSchema, handler TableEventHandler) *Bui
 	}
 	actions.Row = append(actions.Row, action)
 	b.registrar.RegisterRowActionHandler(b.tableID, action.ID, handler)
+	return b
+}
+
+// ColumnAction appends a column action and registers its handler.
+func (b *Builder) ColumnAction(action ActionSchema, handler TableEventHandler) *Builder {
+	if action.ID == "" || handler == nil || b.registrar == nil || b.tableID == "" {
+		return b
+	}
+	registrar, ok := b.registrar.(TableColumnActionRegistrar)
+	if !ok {
+		return b
+	}
+	if action.Label == "" {
+		action.Label = titleFromName(action.ID)
+	}
+	actions := b.schema.Actions
+	if actions == nil {
+		actions = &TableActionGroups{}
+		b.schema.Actions = actions
+	}
+	actions.Column = append(actions.Column, action)
+	registrar.RegisterColumnActionHandler(b.tableID, action.ID, handler)
+	return b
+}
+
+// SelectedAction appends a selected-row action and registers its handler.
+func (b *Builder) SelectedAction(action ActionSchema, handler TableEventHandler) *Builder {
+	if action.ID == "" || handler == nil || b.registrar == nil || b.tableID == "" {
+		return b
+	}
+	registrar, ok := b.registrar.(TableSelectedActionRegistrar)
+	if !ok {
+		return b
+	}
+	if action.Label == "" {
+		action.Label = titleFromName(action.ID)
+	}
+	actions := b.schema.Actions
+	if actions == nil {
+		actions = &TableActionGroups{}
+		b.schema.Actions = actions
+	}
+	actions.Selected = append(actions.Selected, action)
+	registrar.RegisterSelectedActionHandler(b.tableID, action.ID, handler)
 	return b
 }
 
@@ -229,11 +289,6 @@ func (b *Builder) SetSelection(selection TableSelectionSchema) {
 	b.Selection(selection)
 }
 
-// SetHotkeys replaces table hotkeys.
-func (b *Builder) SetHotkeys(hotkeys []TableHotkeySchema) {
-	b.Hotkeys(hotkeys...)
-}
-
 // SetState replaces the initial table state.
 func (b *Builder) SetState(state TableStateConfig) {
 	b.State(state)
@@ -272,6 +327,12 @@ func (b *ColumnBuilder) AccessorKey(key string) *ColumnBuilder {
 // Kind sets the column kind.
 func (b *ColumnBuilder) Kind(kind TableColumnKind) *ColumnBuilder {
 	b.column.Kind = kind
+	return b
+}
+
+// Hidden sets whether the column is hidden by default.
+func (b *ColumnBuilder) Hidden(hidden bool) *ColumnBuilder {
+	b.column.Hidden = hidden
 	return b
 }
 
@@ -360,6 +421,11 @@ func (b *ColumnBuilder) SetAccessorKey(key string) {
 // SetKind changes the column kind.
 func (b *ColumnBuilder) SetKind(kind TableColumnKind) {
 	b.Kind(kind)
+}
+
+// SetHidden sets whether the column is hidden by default.
+func (b *ColumnBuilder) SetHidden(hidden bool) {
+	b.Hidden(hidden)
 }
 
 // SetSortable toggles column sorting.
@@ -549,11 +615,6 @@ func (t *TableSchema) AddSelectedAction(action ActionSchema) {
 	actions.Selected = append(actions.Selected, action)
 }
 
-// AddHotkey appends a keyboard shortcut.
-func (t *TableSchema) AddHotkey(hotkey TableHotkeySchema) {
-	t.Hotkeys = append(t.Hotkeys, hotkey)
-}
-
 // SetHeader changes the column header.
 func (c *TableColumnSchema) SetHeader(header string) {
 	c.Header = header
@@ -567,6 +628,11 @@ func (c *TableColumnSchema) SetAccessorKey(key string) {
 // SetKind changes the column kind.
 func (c *TableColumnSchema) SetKind(kind TableColumnKind) {
 	c.Kind = kind
+}
+
+// SetHidden sets whether the column is hidden by default.
+func (c *TableColumnSchema) SetHidden(hidden bool) {
+	c.Hidden = hidden
 }
 
 // SetSortable toggles column sorting.

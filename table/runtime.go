@@ -10,10 +10,13 @@ import (
 type TableEventType string
 
 const (
-	TableEventReload     TableEventType = "reload"
-	TableEventFilter     TableEventType = "filter"
-	TableEventPagination TableEventType = "pagination"
-	TableEventRowAction  TableEventType = "rowAction"
+	TableEventReload         TableEventType = "reload"
+	TableEventFilter         TableEventType = "filter"
+	TableEventPagination     TableEventType = "pagination"
+	TableEventRowAction      TableEventType = "rowAction"
+	TableEventToolbarAction  TableEventType = "toolbarAction"
+	TableEventColumnAction   TableEventType = "columnAction"
+	TableEventSelectedAction TableEventType = "selectedAction"
 )
 
 // TableEventHandler handles one table runtime event.
@@ -23,6 +26,21 @@ type TableEventHandler func(ctx *TableRuntimeContext)
 type TableEventRegistrar interface {
 	RegisterTableHandler(tableID string, event TableEventType, handler TableEventHandler)
 	RegisterRowActionHandler(tableID, actionID string, handler TableEventHandler)
+}
+
+// TableToolbarActionRegistrar is implemented by runtimes that support toolbar actions.
+type TableToolbarActionRegistrar interface {
+	RegisterToolbarActionHandler(tableID, actionID string, handler TableEventHandler)
+}
+
+// TableColumnActionRegistrar is implemented by runtimes that support column actions.
+type TableColumnActionRegistrar interface {
+	RegisterColumnActionHandler(tableID, actionID string, handler TableEventHandler)
+}
+
+// TableSelectedActionRegistrar is implemented by runtimes that support selected-row actions.
+type TableSelectedActionRegistrar interface {
+	RegisterSelectedActionHandler(tableID, actionID string, handler TableEventHandler)
 }
 
 // TableEventRequest is the typed client payload for table runtime events.
@@ -41,15 +59,27 @@ type TableRowActionRequest struct {
 	Extra  map[string]any `json:"extra,omitempty"`
 }
 
+// TableColumnActionRequest contains current values of one column keyed by row id.
+type TableColumnActionRequest struct {
+	Column map[string]any `json:"column"`
+}
+
+// TableSelectedActionRequest contains selected row-id values.
+type TableSelectedActionRequest struct {
+	SelectedRows []string `json:"selectedRows"`
+}
+
 // TableEventContext describes the table and state that triggered an event.
 type TableEventContext struct {
-	TableID   string             `json:"tableId"`
-	Event     TableEventType     `json:"event"`
-	ActionID  string             `json:"actionId,omitempty"`
-	Row       map[string]any     `json:"row,omitempty"`
-	PageIndex int                `json:"pageIndex,omitempty"`
-	PageSize  int                `json:"pageSize,omitempty"`
-	Filters   []TableFilterState `json:"filters,omitempty"`
+	TableID      string             `json:"tableId"`
+	Event        TableEventType     `json:"event"`
+	ActionID     string             `json:"actionId,omitempty"`
+	Row          map[string]any     `json:"row,omitempty"`
+	Column       map[string]any     `json:"column,omitempty"`
+	SelectedRows []string           `json:"selectedRows,omitempty"`
+	PageIndex    int                `json:"pageIndex,omitempty"`
+	PageSize     int                `json:"pageSize,omitempty"`
+	Filters      []TableFilterState `json:"filters,omitempty"`
 }
 
 // TableRuntimeContext is used only by TableEngine handlers.

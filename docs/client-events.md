@@ -155,7 +155,201 @@ Client rules:
 - an event key is omitted when its backend handler is not registered;
 - `features.reload`, `features.filtering`, and `features.pagination` are enabled
   automatically when the corresponding handler is registered.
+- toolbar action URLs are exposed in `dsl.actions.toolbar`.
 - row action URLs are exposed separately in `dsl.actions.row`.
+
+## Hidden table columns
+
+`hidden` defines a schema-level initial visibility. A hidden column remains in
+`dsl.columns`, and its accessor value remains in every row:
+
+```json
+{
+  "id": "id",
+  "header": "ID",
+  "kind": "accessor",
+  "accessorKey": "id",
+  "hidden": true
+}
+```
+
+The frontend must:
+
+- initialize column visibility to `false` when `column.hidden === true`;
+- keep the column in the schema and keep its value in row objects;
+- continue using hidden fields for `rowIdKey`, actions, selection, and payloads;
+- treat `state.columnVisibility` as runtime/user state, not as a replacement
+  for the schema default.
+
+`hidden` and `hideable` have different meanings:
+
+- `hidden` controls initial visibility;
+- `hideable` controls whether the user can manage the column in the visibility
+  UI.
+
+When `hideable` is `false`, the frontend must not show that column in the
+column-visibility controls. A system column can therefore use
+`hidden: true` with `hideable: false`.
+
+## Table toolbar actions
+
+Each registered toolbar action is exposed in `dsl.actions.toolbar` with its
+exact backend route:
+
+```json
+{
+  "actions": {
+    "toolbar": [
+      {
+        "id": "refresh",
+        "label": "Refresh",
+        "icon": "refresh",
+        "hotkey": "F5",
+        "url": "/event/users.list/table/users/toolbar/refresh",
+        "method": "POST"
+      }
+    ]
+  }
+}
+```
+
+Every toolbar action has its own static route:
+
+```text
+POST /event/users.list/table/users/toolbar/refresh
+POST /event/users.list/table/users/toolbar/export
+```
+
+The frontend calls the action URL with an empty body. It must not send
+`actionId`, row data, form elements, pagination, filters, or other table state.
+The route is already permanently bound to the correct handler.
+
+Toolbar handlers execute backend commands using server-side context such as the
+current user, system keys, page params, repositories, and services. If the
+result changes the visible table, the handler returns a table data mutation.
+Pagination, filtering, and reload remain separate table events with their own
+payloads.
+
+## Table column actions
+
+Each column action is exposed in `dsl.actions.column` with its own static route:
+
+```json
+{
+  "id": "normalize_names",
+  "label": "Normalize Names",
+  "url": "/event/users.list/table/users/column/normalize_names",
+  "method": "POST"
+}
+```
+
+The frontend sends the current values of the active column as a map. Each key
+is the unique row identifier from `dsl.rowIdKey`; each value is the current
+cell value for that row.
+
+```ts
+type TableColumnActionRequest = {
+  column: Record<string, unknown>
+}
+```
+
+```http
+POST /event/users.list/table/users/column/normalize_names
+Content-Type: application/json
+```
+
+```json
+{
+  "column": {
+    "1": "Behzod",
+    "2": "Ali",
+    "3": "Madina"
+  }
+}
+```
+
+The backend handler reads these values from `ctx.EventTable.Column`. The
+payload must not contain `actionId`; the static route identifies the action.
+
+## Table selected actions
+
+Each selected-row action is exposed in `dsl.actions.selected` with its own
+static route:
+
+```json
+{
+  "id": "delete_selected",
+  "label": "Delete Selected",
+  "hotkey": "Delete",
+  "url": "/event/users.list/table/users/selected/delete_selected",
+  "method": "POST"
+}
+```
+
+The frontend sends only the selected values of `dsl.rowIdKey`:
+
+```ts
+type TableSelectedActionRequest = {
+  selectedRows: string[]
+}
+```
+
+```http
+POST /event/users.list/table/users/selected/delete_selected
+Content-Type: application/json
+```
+
+```json
+{
+  "selectedRows": ["1", "3"]
+}
+```
+
+The frontend converts row-key values to strings and must not send complete row
+objects. The backend handler reads the keys from
+`ctx.EventTable.SelectedRows` and loads authoritative row data on the server
+when needed.
+
+## Table action hotkeys
+
+A hotkey is an optional property of an existing action. There is no separate
+`dsl.hotkeys` list.
+
+```json
+{
+  "actions": {
+    "toolbar": [
+      {
+        "id": "refresh",
+        "label": "Refresh",
+        "hotkey": "F5"
+      }
+    ],
+    "selected": [
+      {
+        "id": "delete_selected",
+        "label": "Delete Selected",
+        "hotkey": "Delete"
+      }
+    ],
+    "row": [
+      {
+        "id": "open",
+        "label": "Open",
+        "hotkey": "Enter"
+      }
+    ]
+  }
+}
+```
+
+The client registers hotkeys from action definitions. Pressing a hotkey must
+execute the same action as clicking its button or menu item, using the same
+action URL, method, payload rules, and runtime handler.
+
+Table navigation keys such as `ArrowUp`, `ArrowDown`, `Home`, `End`, `Esc`, and
+`Ctrl+A` are frontend runtime behavior. They are not action hotkeys and must not
+be represented in the DSL.
 
 ## Table event payload
 
