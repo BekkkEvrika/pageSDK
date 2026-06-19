@@ -1,7 +1,6 @@
 package page
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -12,8 +11,7 @@ import (
 	inputs "github.com/BekkkEvrika/pageSDK/form"
 )
 
-// CalculatorPage is a minimal form page demonstrating nested containers
-// and runtime updates without changing the form structure.
+// CalculatorPage demonstrates a classic calculator with one display.
 type CalculatorPage struct {
 	*formengine.FormEngine
 }
@@ -30,65 +28,101 @@ func (p *CalculatorPage) Init(_ *engine.BuildContext) error {
 			{
 				Key:       "calculator",
 				Direction: "vertical",
-				Gap:       16,
+				Gap:       12,
 				Card:      true,
-				Title:     "Простой калькулятор",
-				Containers: []inputs.Container{
-					{
-						Key:         "operands",
-						Direction:   "horizontal",
-						Gap:         12,
-						GridColumns: 2,
-						Fields: []inputs.Input{
-							{
-								Id:           "left",
-								Type:         inputs.InputTypeNumber,
-								Label:        "Первое число",
-								DefaultValue: 0,
-							},
-							{
-								Id:           "right",
-								Type:         inputs.InputTypeNumber,
-								Label:        "Второе число",
-								DefaultValue: 0,
-							},
-						},
-					},
-					{
-						Key:       "operations",
-						Direction: "horizontal",
-						Gap:       8,
-						Fields: []inputs.Input{
-							{Id: "add", Type: inputs.InputTypeButton, Label: "+", Variant: "primary"},
-							{Id: "subtract", Type: inputs.InputTypeButton, Label: "−"},
-							{Id: "multiply", Type: inputs.InputTypeButton, Label: "×"},
-							{Id: "divide", Type: inputs.InputTypeButton, Label: "÷"},
-						},
-					},
-				},
+				Title:     "Калькулятор",
 				Fields: []inputs.Input{
 					{
 						Id:           "result",
-						Type:         inputs.InputTypeNumber,
+						Type:         inputs.InputTypeText,
 						Label:        "Результат",
 						ReadOnly:     true,
-						DefaultValue: 0,
+						DefaultValue: "0",
 					},
+				},
+				Containers: []inputs.Container{
+					calculatorButtonRow("row1",
+						calculatorButton("clear", "C", "destructive"),
+						calculatorButton("divide", "÷", "secondary"),
+						calculatorButton("multiply", "×", "secondary"),
+						calculatorButton("backspace", "⌫", "secondary"),
+					),
+					calculatorButtonRow("row2",
+						calculatorButton("digit7", "7", ""),
+						calculatorButton("digit8", "8", ""),
+						calculatorButton("digit9", "9", ""),
+						calculatorButton("subtract", "−", "secondary"),
+					),
+					calculatorButtonRow("row3",
+						calculatorButton("digit4", "4", ""),
+						calculatorButton("digit5", "5", ""),
+						calculatorButton("digit6", "6", ""),
+						calculatorButton("add", "+", "secondary"),
+					),
+					calculatorButtonRow("row4",
+						calculatorButton("digit1", "1", ""),
+						calculatorButton("digit2", "2", ""),
+						calculatorButton("digit3", "3", ""),
+						calculatorButton("equals", "=", "primary"),
+					),
+					calculatorButtonRow("row5",
+						calculatorButton("digit0", "0", ""),
+						calculatorButton("decimal", ".", ""),
+					),
 				},
 			},
 		},
 	})
 
-	if err := p.bindCalculatorButton("add", calculatorAdd); err != nil {
-		return err
+	for digit := 0; digit <= 9; digit++ {
+		id := "digit" + strconv.Itoa(digit)
+		value := strconv.Itoa(digit)
+		if err := p.bindCalculatorButton(id, func(ctx *formengine.RuntimeContext) {
+			appendCalculatorDigit(ctx, value)
+		}); err != nil {
+			return err
+		}
 	}
-	if err := p.bindCalculatorButton("subtract", calculatorSubtract); err != nil {
-		return err
+
+	handlers := []struct {
+		id      string
+		handler formengine.ClickListener
+	}{
+		{id: "add", handler: calculatorOperator("+")},
+		{id: "subtract", handler: calculatorOperator("-")},
+		{id: "multiply", handler: calculatorOperator("*")},
+		{id: "divide", handler: calculatorOperator("/")},
+		{id: "decimal", handler: appendCalculatorDecimal},
+		{id: "equals", handler: calculateResult},
+		{id: "clear", handler: clearCalculator},
+		{id: "backspace", handler: backspaceCalculator},
 	}
-	if err := p.bindCalculatorButton("multiply", calculatorMultiply); err != nil {
-		return err
+	for _, item := range handlers {
+		if err := p.bindCalculatorButton(item.id, item.handler); err != nil {
+			return err
+		}
 	}
-	return p.bindCalculatorButton("divide", calculatorDivide)
+
+	return nil
+}
+
+func calculatorButtonRow(id string, buttons ...inputs.Input) inputs.Container {
+	return inputs.Container{
+		Key:         id,
+		Direction:   "horizontal",
+		Gap:         8,
+		GridColumns: 4,
+		Fields:      buttons,
+	}
+}
+
+func calculatorButton(id, label, variant string) inputs.Input {
+	return inputs.Input{
+		Id:      id,
+		Type:    inputs.InputTypeButton,
+		Label:   label,
+		Variant: variant,
+	}
 }
 
 func (p *CalculatorPage) bindCalculatorButton(id string, handler formengine.ClickListener) error {
@@ -100,83 +134,131 @@ func (p *CalculatorPage) bindCalculatorButton(id string, handler formengine.Clic
 	return nil
 }
 
-func calculatorAdd(ctx *formengine.RuntimeContext) {
-	calculate(ctx, func(left, right float64) (float64, error) {
-		return left + right, nil
-	})
-}
-
-func calculatorSubtract(ctx *formengine.RuntimeContext) {
-	calculate(ctx, func(left, right float64) (float64, error) {
-		return left - right, nil
-	})
-}
-
-func calculatorMultiply(ctx *formengine.RuntimeContext) {
-	calculate(ctx, func(left, right float64) (float64, error) {
-		return left * right, nil
-	})
-}
-
-func calculatorDivide(ctx *formengine.RuntimeContext) {
-	calculate(ctx, func(left, right float64) (float64, error) {
-		if right == 0 {
-			return 0, errors.New("деление на ноль невозможно")
+func appendCalculatorDigit(ctx *formengine.RuntimeContext, digit string) {
+	updateCalculatorDisplay(ctx, func(expression string) (string, error) {
+		if expression == "0" {
+			return digit, nil
 		}
-		return left / right, nil
+		return expression + digit, nil
 	})
 }
 
-func calculate(ctx *formengine.RuntimeContext, operation func(float64, float64) (float64, error)) {
-	left, err := calculatorValue(ctx, "left")
-	if err != nil {
-		ctx.SetError(err)
-		return
-	}
-	right, err := calculatorValue(ctx, "right")
-	if err != nil {
-		ctx.SetError(err)
-		return
-	}
-
-	value, err := operation(left, right)
-	if err != nil {
-		ctx.SetError(err)
-		return
-	}
-
-	result, err := ctx.GetNumberById("result")
-	if err != nil {
-		return
-	}
-	result.SetValue(value)
+func appendCalculatorDecimal(ctx *formengine.RuntimeContext) {
+	updateCalculatorDisplay(ctx, func(expression string) (string, error) {
+		parts := strings.Fields(expression)
+		if len(parts)%2 == 0 {
+			return expression + "0.", nil
+		}
+		current := parts[len(parts)-1]
+		if strings.Contains(current, ".") {
+			return expression, nil
+		}
+		return expression + ".", nil
+	})
 }
 
-func calculatorValue(ctx *formengine.RuntimeContext, id string) (float64, error) {
-	control, err := ctx.GetNumberById(id)
+func calculatorOperator(operator string) formengine.ClickListener {
+	return func(ctx *formengine.RuntimeContext) {
+		updateCalculatorDisplay(ctx, func(expression string) (string, error) {
+			parts := strings.Fields(expression)
+			if len(parts)%2 == 0 {
+				parts[len(parts)-1] = operator
+				return strings.Join(parts, " "), nil
+			}
+			return expression + " " + operator + " ", nil
+		})
+	}
+}
+
+func calculateResult(ctx *formengine.RuntimeContext) {
+	updateCalculatorDisplay(ctx, evaluateCalculatorExpression)
+}
+
+func clearCalculator(ctx *formengine.RuntimeContext) {
+	setCalculatorDisplay(ctx, "0")
+}
+
+func backspaceCalculator(ctx *formengine.RuntimeContext) {
+	updateCalculatorDisplay(ctx, func(expression string) (string, error) {
+		expression = strings.TrimSpace(expression)
+		if expression == "" || expression == "0" {
+			return "0", nil
+		}
+		expression = strings.TrimSpace(expression[:len(expression)-1])
+		if expression == "" {
+			return "0", nil
+		}
+		return expression, nil
+	})
+}
+
+func updateCalculatorDisplay(
+	ctx *formengine.RuntimeContext,
+	update func(string) (string, error),
+) {
+	display, err := ctx.GetTextById("result")
 	if err != nil {
-		return 0, err
+		return
 	}
 
-	value := control.Element().Value
-	switch number := value.(type) {
-	case float64:
-		return number, nil
-	case float32:
-		return float64(number), nil
-	case int:
-		return float64(number), nil
-	case int64:
-		return float64(number), nil
-	case json.Number:
-		return number.Float64()
-	case string:
-		parsed, parseErr := strconv.ParseFloat(strings.TrimSpace(number), 64)
+	expression := fmt.Sprint(display.Element().Value)
+	if expression == "" || expression == "<nil>" {
+		expression = "0"
+	}
+	value, err := update(expression)
+	if err != nil {
+		ctx.SetError(err)
+		return
+	}
+	display.SetValue(value)
+}
+
+func setCalculatorDisplay(ctx *formengine.RuntimeContext, value string) {
+	display, err := ctx.GetTextById("result")
+	if err != nil {
+		return
+	}
+	display.SetValue(value)
+}
+
+// evaluateCalculatorExpression evaluates operations from left to right,
+// matching the behaviour of a simple pocket calculator.
+func evaluateCalculatorExpression(expression string) (string, error) {
+	parts := strings.Fields(expression)
+	if len(parts) == 0 {
+		return "0", nil
+	}
+	if len(parts)%2 == 0 {
+		return "", errors.New("выражение не закончено")
+	}
+
+	result, err := strconv.ParseFloat(parts[0], 64)
+	if err != nil {
+		return "", errors.New("некорректное число")
+	}
+
+	for index := 1; index < len(parts); index += 2 {
+		right, parseErr := strconv.ParseFloat(parts[index+1], 64)
 		if parseErr != nil {
-			return 0, fmt.Errorf("поле %q должно содержать число", id)
+			return "", errors.New("некорректное число")
 		}
-		return parsed, nil
-	default:
-		return 0, fmt.Errorf("поле %q должно содержать число", id)
+
+		switch parts[index] {
+		case "+":
+			result += right
+		case "-":
+			result -= right
+		case "*":
+			result *= right
+		case "/":
+			if right == 0 {
+				return "", errors.New("деление на ноль невозможно")
+			}
+			result /= right
+		default:
+			return "", errors.New("неизвестная операция")
+		}
 	}
+
+	return strconv.FormatFloat(result, 'f', -1, 64), nil
 }
