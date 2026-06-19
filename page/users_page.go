@@ -38,6 +38,9 @@ func (p *UsersPage) Init(ctx *engine.BuildContext) error {
 				AddAction(onNormalizeUserEmails, "normalize_emails"),
 			p.Column("status").
 				CellType(tableengine.TableColumnCellTypeBadge).
+				ValueStyle("active", tableengine.TableCellVariantSuccess).
+				ValueStyle("inactive", tableengine.TableCellVariantDanger).
+				ValueStyle("pending", tableengine.TableCellVariantWarning).
 				Filterable(true),
 		).
 		Data(usersData(0, 20)).

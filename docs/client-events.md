@@ -191,6 +191,35 @@ When `hideable` is `false`, the frontend must not show that column in the
 column-visibility controls. A system column can therefore use
 `hidden: true` with `hideable: false`.
 
+## Table value styles
+
+Badge and status columns can declare a visual variant for each concrete value:
+
+```go
+p.Column("status").
+    CellType(tableengine.TableColumnCellTypeBadge).
+    ValueStyle("active", tableengine.TableCellVariantSuccess).
+    ValueStyle("inactive", tableengine.TableCellVariantDanger).
+    ValueStyle("pending", tableengine.TableCellVariantWarning)
+```
+
+The rendered column contains value-based style rules:
+
+```json
+{
+  "id": "status",
+  "cellType": "badge",
+  "valueStyles": {
+    "active": {"variant": "success"},
+    "inactive": {"variant": "danger"},
+    "pending": {"variant": "warning"}
+  }
+}
+```
+
+The frontend selects `column.valueStyles[String(cellValue)]`. When no rule
+exists, it renders the cell using its default style.
+
 ## Table toolbar actions
 
 Each registered toolbar action is exposed in `dsl.actions.toolbar` with its

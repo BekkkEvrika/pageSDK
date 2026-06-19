@@ -20,6 +20,7 @@ type TableColumnKind = table.TableColumnKind
 type TableColumnAlign = table.TableColumnAlign
 type TableColumnDataType = table.TableColumnDataType
 type TableColumnCellType = table.TableColumnCellType
+type TableCellVariant = table.TableCellVariant
 type TableColumnFormatType = table.TableColumnFormatType
 type ActionVariant = table.ActionVariant
 type HTTPMethod = table.HTTPMethod
@@ -58,6 +59,13 @@ const (
 	TableColumnCellTypeLink     = table.TableColumnCellTypeLink
 	TableColumnCellTypeActions  = table.TableColumnCellTypeActions
 	TableColumnCellTypeCustom   = table.TableColumnCellTypeCustom
+
+	TableCellVariantDefault = table.TableCellVariantDefault
+	TableCellVariantPrimary = table.TableCellVariantPrimary
+	TableCellVariantSuccess = table.TableCellVariantSuccess
+	TableCellVariantWarning = table.TableCellVariantWarning
+	TableCellVariantDanger  = table.TableCellVariantDanger
+	TableCellVariantMuted   = table.TableCellVariantMuted
 
 	TableColumnFormatTypeCurrency = table.TableColumnFormatTypeCurrency
 	TableColumnFormatTypeNumber   = table.TableColumnFormatTypeNumber

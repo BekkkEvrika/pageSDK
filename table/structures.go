@@ -51,7 +51,13 @@ type TableColumnSchema struct {
 	DataType TableColumnDataType `json:"dataType,omitempty"`
 	CellType TableColumnCellType `json:"cellType,omitempty"`
 
-	Format *TableColumnFormat `json:"format,omitempty"`
+	Format      *TableColumnFormat         `json:"format,omitempty"`
+	ValueStyles map[string]TableValueStyle `json:"valueStyles,omitempty"`
+}
+
+// TableValueStyle describes how a concrete cell value should be rendered.
+type TableValueStyle struct {
+	Variant TableCellVariant `json:"variant"`
 }
 
 type TableData struct {

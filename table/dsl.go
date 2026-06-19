@@ -418,6 +418,18 @@ func (b *ColumnBuilder) CellType(cellType TableColumnCellType) *ColumnBuilder {
 	return b
 }
 
+// ValueStyle assigns a semantic visual variant to one concrete cell value.
+func (b *ColumnBuilder) ValueStyle(value string, variant TableCellVariant) *ColumnBuilder {
+	if b == nil || b.column == nil || value == "" {
+		return b
+	}
+	if b.column.ValueStyles == nil {
+		b.column.ValueStyles = map[string]TableValueStyle{}
+	}
+	b.column.ValueStyles[value] = TableValueStyle{Variant: variant}
+	return b
+}
+
 // Format sets the column value format.
 func (b *ColumnBuilder) Format(format TableColumnFormat) *ColumnBuilder {
 	b.column.Format = &format
@@ -492,6 +504,11 @@ func (b *ColumnBuilder) SetDataType(dataType TableColumnDataType) {
 // SetCellType changes the column cell renderer type.
 func (b *ColumnBuilder) SetCellType(cellType TableColumnCellType) {
 	b.CellType(cellType)
+}
+
+// SetValueStyle assigns a semantic visual variant to one concrete cell value.
+func (b *ColumnBuilder) SetValueStyle(value string, variant TableCellVariant) {
+	b.ValueStyle(value, variant)
 }
 
 // SetFormat changes the column value format.
@@ -694,6 +711,17 @@ func (c *TableColumnSchema) SetDataType(dataType TableColumnDataType) {
 // SetCellType changes the column cell renderer type.
 func (c *TableColumnSchema) SetCellType(cellType TableColumnCellType) {
 	c.CellType = cellType
+}
+
+// SetValueStyle assigns a semantic visual variant to one concrete cell value.
+func (c *TableColumnSchema) SetValueStyle(value string, variant TableCellVariant) {
+	if value == "" {
+		return
+	}
+	if c.ValueStyles == nil {
+		c.ValueStyles = map[string]TableValueStyle{}
+	}
+	c.ValueStyles[value] = TableValueStyle{Variant: variant}
 }
 
 // SetFormat changes the column value format.

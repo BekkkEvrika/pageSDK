@@ -273,7 +273,13 @@ func TestTableBuilderFluentAPI(t *testing.T) {
 		Columns(
 			engine.Column("id").Header("ID").AccessorKey("id"),
 			engine.Column("name").Header("Name").AccessorKey("name").Searchable(true),
-			engine.Column("status").Header("Status").AccessorKey("status").CellType(table.TableColumnCellTypeBadge),
+			engine.Column("status").
+				Header("Status").
+				AccessorKey("status").
+				CellType(table.TableColumnCellTypeBadge).
+				ValueStyle("active", table.TableCellVariantSuccess).
+				ValueStyle("inactive", table.TableCellVariantDanger).
+				ValueStyle("pending", table.TableCellVariantWarning),
 		).
 		Features(table.TableFeatureConfig{
 			Sorting:      true,
@@ -298,6 +304,12 @@ func TestTableBuilderFluentAPI(t *testing.T) {
 	}
 	if dsl.Columns[2].CellType != table.TableColumnCellTypeBadge {
 		t.Fatalf("status cell type = %q, want badge", dsl.Columns[2].CellType)
+	}
+	styles := dsl.Columns[2].ValueStyles
+	if styles["active"].Variant != table.TableCellVariantSuccess ||
+		styles["inactive"].Variant != table.TableCellVariantDanger ||
+		styles["pending"].Variant != table.TableCellVariantWarning {
+		t.Fatalf("status value styles = %#v", styles)
 	}
 	if dsl.Features == nil || !dsl.Features.Sorting || !dsl.Features.Pagination {
 		t.Fatalf("features not preserved: %#v", dsl.Features)

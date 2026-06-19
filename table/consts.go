@@ -48,6 +48,18 @@ const (
 	TableColumnCellTypeCustom   TableColumnCellType = "custom"
 )
 
+// TableCellVariant describes the semantic visual style of a cell value.
+type TableCellVariant string
+
+const (
+	TableCellVariantDefault TableCellVariant = "default"
+	TableCellVariantPrimary TableCellVariant = "primary"
+	TableCellVariantSuccess TableCellVariant = "success"
+	TableCellVariantWarning TableCellVariant = "warning"
+	TableCellVariantDanger  TableCellVariant = "danger"
+	TableCellVariantMuted   TableCellVariant = "muted"
+)
+
 type TableColumnFormatType string
 
 const (
