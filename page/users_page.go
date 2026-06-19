@@ -57,13 +57,15 @@ func (p *UsersPage) Init(ctx *engine.BuildContext) error {
 		OnReload(onUsersReload).
 		OnFilter(onUsersFilter).
 		OnPagination(onUsersPagination).
-		ToolbarAction(tableengine.ActionSchema{
-			ID:      "refresh",
-			Label:   "Refresh",
-			Icon:    "refresh",
-			Variant: tableengine.ActionVariantSecondary,
-			Hotkey:  "F5",
-		}, onUsersRefresh).
+		ToolbarActions(
+			p.Action("refresh", onUsersRefresh).
+				Icon("refresh").
+				Variant(tableengine.ActionVariantSecondary).
+				Hotkey("F5"),
+			p.Action("clear", onUsersClear).
+				Icon("trash").
+				Variant(tableengine.ActionVariantDanger),
+		).
 		RowAction(tableengine.ActionSchema{
 			ID:      "edit",
 			Label:   "Edit",
@@ -83,6 +85,13 @@ func (p *UsersPage) Init(ctx *engine.BuildContext) error {
 
 func onUsersRefresh(ctx *tableengine.TableRuntimeContext) {
 	ctx.Table("users").SetData(usersData(0, 20))
+}
+
+func onUsersClear(ctx *tableengine.TableRuntimeContext) {
+	ctx.Table("users").SetData(tableengine.TableData{
+		Rows:     []map[string]any{},
+		PageSize: 20,
+	})
 }
 
 func onUsersReload(ctx *tableengine.TableRuntimeContext) {

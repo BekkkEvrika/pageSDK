@@ -46,6 +46,55 @@ func NewColumnBuilder(column *TableColumnSchema) *ColumnBuilder {
 	return &ColumnBuilder{column: column}
 }
 
+// NewAction creates a fluent table action builder.
+func NewAction(id string, handler TableEventHandler) *ActionBuilder {
+	return &ActionBuilder{
+		action: ActionSchema{
+			ID:    id,
+			Label: titleFromName(id),
+		},
+		handler: handler,
+	}
+}
+
+// ActionBuilder configures one table action and its runtime handler.
+type ActionBuilder struct {
+	action  ActionSchema
+	handler TableEventHandler
+}
+
+// Label sets the action label.
+func (b *ActionBuilder) Label(label string) *ActionBuilder {
+	if b != nil {
+		b.action.Label = label
+	}
+	return b
+}
+
+// Icon sets the action icon.
+func (b *ActionBuilder) Icon(icon string) *ActionBuilder {
+	if b != nil {
+		b.action.Icon = icon
+	}
+	return b
+}
+
+// Variant sets the action visual variant.
+func (b *ActionBuilder) Variant(variant ActionVariant) *ActionBuilder {
+	if b != nil {
+		b.action.Variant = variant
+	}
+	return b
+}
+
+// Hotkey sets the action keyboard shortcut.
+func (b *ActionBuilder) Hotkey(hotkey string) *ActionBuilder {
+	if b != nil {
+		b.action.Hotkey = hotkey
+	}
+	return b
+}
+
 // Builder mutates a TableSchema owned by an engine instance.
 type Builder struct {
 	schema        *TableSchema
@@ -194,6 +243,17 @@ func (b *Builder) ToolbarAction(action ActionSchema, handler TableEventHandler) 
 	}
 	actions.Toolbar = append(actions.Toolbar, action)
 	registrar.RegisterToolbarActionHandler(b.tableID, action.ID, handler)
+	return b
+}
+
+// ToolbarActions appends multiple toolbar actions and registers their handlers.
+func (b *Builder) ToolbarActions(actions ...*ActionBuilder) *Builder {
+	for _, action := range actions {
+		if action == nil {
+			continue
+		}
+		b.ToolbarAction(action.action, action.handler)
+	}
 	return b
 }
 

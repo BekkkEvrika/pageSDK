@@ -222,6 +222,17 @@ exists, it renders the cell using its default style.
 
 ## Table toolbar actions
 
+Multiple toolbar actions can be registered together with the fluent action
+builder:
+
+```go
+p.Table("users").
+    ToolbarActions(
+        p.Action("refresh", onRefresh).Icon("refresh").Hotkey("F5"),
+        p.Action("clear", onClear).Icon("trash"),
+    )
+```
+
 Each registered toolbar action is exposed in `dsl.actions.toolbar` with its
 exact backend route:
 
@@ -249,9 +260,10 @@ POST /event/users.list/table/users/toolbar/refresh
 POST /event/users.list/table/users/toolbar/export
 ```
 
-The frontend calls the action URL with an empty body. It must not send
-`actionId`, row data, form elements, pagination, filters, or other table state.
-The route is already permanently bound to the correct handler.
+The frontend may call the action URL with an empty body. If it sends a body,
+the backend ignores it: `actionId`, row data, form elements, pagination,
+filters, and other table state are not passed to the handler. The route is
+already permanently bound to the correct handler.
 
 Toolbar handlers execute backend commands using server-side context such as the
 current user, system keys, page params, repositories, and services. If the
@@ -1285,6 +1297,21 @@ The backend guarantees:
 - all UI changes are explicit mutations/navigation/dialog actions
 
 ## Important errors
+
+Form controls support fluent configuration while the existing `Set...` methods
+remain available:
+
+```go
+p.Text("name").
+    Label("User name").
+    Placeholder("Enter user name").
+    OnChange(OnNameChange)
+
+p.Button("save").
+    Label("Save").
+    Variant("primary").
+    OnClick(OnSave)
+```
 
 If a Page registers a listener for a missing component:
 

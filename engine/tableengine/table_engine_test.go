@@ -111,12 +111,14 @@ func (p *toolbarActionTablePage) Init(ctx *engine.BuildContext) error {
 
 func (p *separateToolbarRoutesPage) Init(ctx *engine.BuildContext) error {
 	p.Table("users").
-		ToolbarAction(table.ActionSchema{ID: "export", Label: "Export"}, func(ctx *table.TableRuntimeContext) {
-			p.called = "export"
-		}).
-		ToolbarAction(table.ActionSchema{ID: "refresh", Label: "Refresh"}, func(ctx *table.TableRuntimeContext) {
-			p.called = "refresh"
-		})
+		ToolbarActions(
+			p.Action("export", func(ctx *table.TableRuntimeContext) {
+				p.called = "export"
+			}),
+			p.Action("refresh", func(ctx *table.TableRuntimeContext) {
+				p.called = "refresh"
+			}).Icon("refresh").Hotkey("F5"),
+		)
 	return nil
 }
 
@@ -582,15 +584,22 @@ func TestTableToolbarActionRunsWithoutClientPayload(t *testing.T) {
 	}
 }
 
-func TestTableToolbarActionRejectsClientPayload(t *testing.T) {
+func TestTableToolbarActionIgnoresClientPayload(t *testing.T) {
 	bootstrapPage := &toolbarActionTablePage{TableEngine: &TableEngine{}}
 	routes := bootstrapPage.TableEngine.Routes("users.list", bootstrapPage)
+	runtimePage := &toolbarActionTablePage{TableEngine: &TableEngine{}}
 
 	_, err := routes[1].Handler(&engine.RequestContext{
 		Body: []byte(`{"pageIndex":2}`),
-	}, &toolbarActionTablePage{TableEngine: &TableEngine{}})
-	if err == nil {
-		t.Fatal("expected toolbar action payload error")
+	}, runtimePage)
+	if err != nil {
+		t.Fatalf("toolbar action returned error for ignored payload: %v", err)
+	}
+	if runtimePage.called == nil {
+		t.Fatal("toolbar action handler was not called")
+	}
+	if runtimePage.called.EventTable.PageIndex != 0 {
+		t.Fatalf("toolbar action used ignored payload: %#v", runtimePage.called.EventTable)
 	}
 }
 

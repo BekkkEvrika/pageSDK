@@ -58,11 +58,15 @@ type testFormEventPage struct {
 }
 
 func (p *testFormEventPage) Init(ctx *BuildContext) error {
-	save := p.Button("save")
-	save.SetOnClick(testOnSave)
+	p.Button("save").
+		Label("Save").
+		Variant("primary").
+		OnClick(testOnSave)
 
-	name := p.Text("name")
-	name.SetOnChange(testOnNameChange)
+	p.Text("name").
+		Label("Name").
+		Placeholder("Enter name").
+		OnChange(testOnNameChange)
 	p.Text("saved")
 	p.Text("changed")
 

@@ -6,7 +6,6 @@ import (
 
 	"github.com/BekkkEvrika/pageSDK/engine"
 	"github.com/BekkkEvrika/pageSDK/engine/formengine"
-	inputs "github.com/BekkkEvrika/pageSDK/form"
 )
 
 // UsersEditPage — page редактирования пользователя.
@@ -28,87 +27,30 @@ func NewUsersEditPage() engine.Page {
 
 // Init вызывается на каждый request и только собирает DSL.
 func (p *UsersEditPage) Init(ctx *engine.BuildContext) error {
-	p.CreateForm(inputs.Form{
-		Containers: &[]inputs.Container{
-			{
-				Key:       "main",
-				Direction: "vertical",
-				Gap:       16,
-				Fields: []inputs.Input{
-					{
-						Id:    "name",
-						Type:  inputs.InputTypeText,
-						Label: "Имя пользователя",
-					},
-					{
-						Id:    "email",
-						Type:  inputs.InputTypeText,
-						Label: "Email",
-					},
-					{
-						Id:    "save",
-						Type:  inputs.InputTypeButton,
-						Label: "Сохранить",
-					},
-					{
-						Id:    "pickUser",
-						Type:  inputs.InputTypeButton,
-						Label: "Выбрать пользователя",
-					},
-					{
-						Id:       "selectedUser",
-						Type:     inputs.InputTypeText,
-						Label:    "Выбранный пользователь",
-						ReadOnly: true,
-					},
-					{
-						Id:    "status",
-						Type:  inputs.InputTypeText,
-						Label: "Статус",
-					},
-					{
-						Id:    "lastAction",
-						Type:  inputs.InputTypeText,
-						Label: "Последнее действие",
-					},
-					{
-						Id:    "nameChanged",
-						Type:  inputs.InputTypeCheckbox,
-						Label: "Имя изменено",
-					},
-				},
-			},
-		},
-	})
+	p.Text("name").
+		Label("Имя пользователя").
+		DefaultValue(ctx.Params["name"]).
+		OnChange(OnNameChange)
+	p.Text("email").
+		Label("Email").
+		DefaultValue(ctx.Params["email"])
+	p.Button("save").
+		Label("Сохранить").
+		OnClick(OnSave)
+	p.Button("pickUser").
+		Label("Выбрать пользователя").
+		OnClick(OnPickUser)
+	p.Text("selectedUser").
+		Label("Выбранный пользователь").
+		ReadOnly(true)
+	p.Text("status").
+		Label("Статус").
+		DefaultValue(ctx.Params["status"])
+	p.Text("lastAction").
+		Label("Последнее действие")
+	p.Checkbox("nameChanged").
+		Label("Имя изменено")
 
-	save, err := p.GetButtonById("save")
-	if err != nil {
-		return err
-	}
-	save.SetOnClick(OnSave)
-	pickUser, err := p.GetButtonById("pickUser")
-	if err != nil {
-		return err
-	}
-	pickUser.SetOnClick(OnPickUser)
-	name, err := p.GetTextById("name")
-	if err != nil {
-		return err
-	}
-	name.SetDefaultValue(ctx.Params["name"])
-	name.SetOnChange(OnNameChange)
-
-	email, err := p.GetTextById("email")
-	if err != nil {
-		return err
-	}
-	email.SetDefaultValue(ctx.Params["email"])
-
-	status, err := p.GetTextById("status")
-	if err != nil {
-		return err
-	}
-	status.SetDefaultValue(ctx.Params["status"])
 	return nil
 }
 

@@ -104,9 +104,19 @@ func (t *TableEngine) Actions(actions table.TableActionGroups) *table.Builder {
 	return t.builder().Actions(actions)
 }
 
+// Action creates a fluent table action builder.
+func (t *TableEngine) Action(id string, handler table.TableEventHandler) *table.ActionBuilder {
+	return table.NewAction(id, handler)
+}
+
 // ToolbarAction appends a toolbar action and registers its handler.
 func (t *TableEngine) ToolbarAction(action table.ActionSchema, handler table.TableEventHandler) *table.Builder {
 	return t.builder().ToolbarAction(action, handler)
+}
+
+// ToolbarActions appends multiple toolbar actions and registers their handlers.
+func (t *TableEngine) ToolbarActions(actions ...*table.ActionBuilder) *table.Builder {
+	return t.builder().ToolbarActions(actions...)
 }
 
 // RowAction appends a row action and registers its handler.
@@ -455,10 +465,7 @@ func (t *TableEngine) runtimeContext(req *engine.RequestContext, key tableEventK
 		row = payload.Row
 	case table.TableEventToolbarAction:
 		// Toolbar actions are backend commands. The static route identifies the
-		// action, so the client does not need to send a payload.
-		if len(bytes.TrimSpace(req.Body)) != 0 {
-			return nil, fmt.Errorf("table engine: toolbar action %q does not accept payload", key.ActionID)
-		}
+		// action, so any client payload is ignored.
 	case table.TableEventColumnAction:
 		payload := table.TableColumnActionRequest{}
 		if err := decodeTablePayload(req.Body, key.Event, &payload); err != nil {

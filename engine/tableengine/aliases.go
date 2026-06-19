@@ -9,6 +9,7 @@ type TableEventRoutes = table.TableEventRoutes
 type TableEventRoute = table.TableEventRoute
 type TableActionGroups = table.TableActionGroups
 type ActionSchema = table.ActionSchema
+type ActionBuilder = table.ActionBuilder
 type TableFeatureConfig = table.TableFeatureConfig
 type TableSelectionSchema = table.TableSelectionSchema
 type TableColumnFormat = table.TableColumnFormat
