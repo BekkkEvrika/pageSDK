@@ -1,11 +1,31 @@
 # pageSDK
 
-`pageSDK` - это Go-библиотека для server-driven UI: backend описывает страницу как DSL, frontend отрисовывает этот DSL, а события пользователя отправляет обратно на backend. Backend не хранит состояние интерфейса между запросами. Любое изменение UI возвращается клиенту явно: через `mutations`, `navigation` и `dialogs`.
+`pageSDK` — Go-библиотека для создания server-driven UI. Backend описывает
+страницы декларативным DSL, библиотека публикует HTTP routes, frontend
+отрисовывает DSL и отправляет пользовательские события обратно.
 
-Проект сейчас содержит два движка:
+Библиотека предоставляет два движка:
 
-- `FormEngine` - формы, поля, кнопки, обработчики `click` и `change`.
-- `TableEngine` - простые табличные страницы с колонками и универсальным event route.
+- `FormEngine` — формы, поля, кнопки, события `click`/`change`, mutations,
+  dialogs и navigation;
+- `TableEngine` — таблицы, pagination/filter/reload, toolbar actions, row
+  actions, column actions и actions над выбранными строками.
+
+`pageSDK` не является готовым frontend-компонентом. Это backend SDK и HTTP
+контракт. Клиентское приложение должно уметь отрисовать полученный DSL и
+обработать runtime response.
+
+## Документация
+
+- [Полное руководство пользователя](docs/user-guide.md)
+- [Протокол frontend-событий](docs/client-events.md)
+- [Пример FormEngine](page/users_edit.go)
+- [Пример TableEngine](page/users_page.go)
+
+## Требования
+
+- Go `1.25.4` или совместимая версия;
+- HTTP transport предоставляется встроенным приложением на Gin.
 
 ## Установка
 
@@ -13,7 +33,7 @@
 go get github.com/BekkkEvrika/pageSDK
 ```
 
-## Минимальный запуск
+## Минимальное приложение
 
 ```go
 package main
@@ -21,47 +41,48 @@ package main
 import (
 	pagesdk "github.com/BekkkEvrika/pageSDK"
 	"github.com/BekkkEvrika/pageSDK/engine"
+	"github.com/BekkkEvrika/pageSDK/engine/formengine"
 )
 
 func main() {
-	application := pagesdk.New()
-	if err := application.Bootstrap(registerPages, ":8080"); err != nil {
+	app := pagesdk.New()
+	if err := app.Bootstrap(registerPages, ":8080"); err != nil {
 		panic(err)
 	}
 }
 
-func registerPages(a *pagesdk.Application) {
-	a.Manifest().Register("users.edit", NewUsersEditPage)
+func registerPages(app *pagesdk.Application) {
+	app.Manifest().Register("users.edit", NewUsersEditPage)
 }
 
 type UsersEditPage struct {
-	*engine.FormEngine
+	*formengine.FormEngine
 }
 
-func NewUsersEditPage() pagesdk.Page {
+func NewUsersEditPage() engine.Page {
 	return &UsersEditPage{
-		FormEngine: &engine.FormEngine{},
+		FormEngine: &formengine.FormEngine{},
 	}
 }
 
 func (p *UsersEditPage) Init(ctx *engine.BuildContext) error {
-	name := p.Text("name")
-	name.SetLabel("User name")
-	name.SetPlaceholder("Enter user name")
+	p.Text("name").
+		Label("User name").
+		Placeholder("Enter user name")
 
-	save := p.Button("save")
-	save.SetLabel("Save")
-	save.SetVariant("primary")
-	save.SetOnClick(onSave)
+	p.Text("status").
+		Label("Status").
+		ReadOnly(true)
 
-	status := p.Text("status")
-	status.SetLabel("Status")
-	status.SetReadOnly(true)
+	p.Button("save").
+		Label("Save").
+		Variant("primary").
+		OnClick(onSave)
 
 	return nil
 }
 
-func onSave(ctx *engine.RuntimeContext) {
+func onSave(ctx *formengine.RuntimeContext) {
 	status, err := ctx.GetTextById("status")
 	if err != nil {
 		return
@@ -70,49 +91,33 @@ func onSave(ctx *engine.RuntimeContext) {
 }
 ```
 
-После старта приложение будет отдавать DSL страницы:
-
-```http
-GET /page/users.edit
-```
-
-И принимать событие кнопки:
-
-```http
-POST /event/users.edit/button/save
-```
-
-## Локальный пример из репозитория
+Запуск:
 
 ```bash
-go mod tidy
-mkdir -p logs
-go run ./cmd/pagesdk-example
+go run .
 ```
 
-Проверить render:
+Получение страницы:
 
 ```bash
 curl http://localhost:8080/page/users.edit
 ```
 
-Отправить click-событие:
+Render response содержит тип движка и DSL:
 
-```bash
-curl -X POST http://localhost:8080/event/users.edit/button/save \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "elements": [
-      {"id": "status", "type": "text", "label": "Status", "value": ""}
-    ],
-    "sender": {"id": "save", "type": "button", "label": "Save", "actionId": "save"},
-    "actionId": "save",
-    "trigger": "click",
-    "changedField": "save"
-  }'
+```json
+{
+  "pageKey": "users.edit",
+  "engine": "form",
+  "dsl": {
+    "containers": [],
+    "actions": []
+  }
+}
 ```
 
-Ответ будет содержать явные изменения:
+Frontend берет URL события из `dsl.actions`, отправляет состояние формы и
+получает явные изменения:
 
 ```json
 {
@@ -126,659 +131,96 @@ curl -X POST http://localhost:8080/event/users.edit/button/save \
 }
 ```
 
-## Как устроен проект
-
-```text
-pageSDK/
-├── pagesdk.go             public entry point библиотеки
-├── app/                   Application: bootstrap, manifest, регистрация routes в Gin
-├── engine/                движки, lifecycle, контексты, mutations, navigation
-├── form/                  структуры Form DSL и runtime payload формы
-├── manifest/              реестр page key -> PageFactory
-├── page/                  примерные страницы
-├── docs/client-events.md  подробный протокол для frontend
-└── cmd/pagesdk-example/   запускаемый пример
-```
-
-Главные сущности:
-
-- `Application` - запускает приложение, вызывает init-функцию, читает manifest и регистрирует HTTP routes.
-- `Manifest` - хранит стабильные ключи страниц и фабрики страниц.
-- `Page` - stateless-описание одной страницы.
-- `Engine` - отвечает за DSL, routes и обработку событий конкретного типа страницы.
-- `BuildContext` - контекст для построения DSL внутри `Init`.
-- `RuntimeContext` - контекст для event handlers, чтения runtime state, записи mutations, navigation и dialogs.
-
-## Lifecycle приложения
-
-Запуск выглядит так:
-
-```text
-main()
-  -> pagesdk.New()
-  -> application.Bootstrap(registerPages, ":8080")
-       -> registerPages(app)
-       -> app.Manifest().All()
-       -> для каждой page создается sample Page
-       -> Engine.Routes(pageKey, samplePage)
-       -> routes регистрируются в Gin
-       -> gin.Run(":8080")
-```
-
-Во время bootstrap `Application` создает временный экземпляр страницы только для получения списка routes. Этот экземпляр не используется для реальных запросов.
-
-Каждый HTTP-запрос проходит отдельный runtime lifecycle:
-
-```text
-HTTP request
-  -> создать новую Page через PageFactory
-  -> внутри Page создать новый Engine
-  -> вызвать Page.Init(...)
-  -> построить DSL или обработать event
-  -> вернуть JSON response
-  -> уничтожить Page и Engine
-```
-
-Из-за этого важное правило: нельзя хранить runtime-состояние в `Page` или `Engine` и ожидать, что оно переживет следующий запрос.
-
-## Manifest
-
-Страницы регистрируются один раз при старте:
+## Короткий пример таблицы
 
 ```go
-func registerPages(a *pagesdk.Application) {
-	a.Manifest().Register("users.list", page.NewUsersListPage)
-	a.Manifest().Register("users.edit", page.NewUsersEditPage)
-	a.Manifest().Register("admin.roles", page.NewAdminRolesPage)
-}
-```
-
-Ключ страницы:
-
-- должен быть стабильным;
-- используется в URL: `/page/users.edit`;
-- используется frontend-клиентом и gateway/integration-слоем;
-- не должен зависеть от пользователя, языка, фильтров или временных данных.
-
-При повторной регистрации одного и того же ключа `Manifest.Register` вызывает `panic`, потому что это ошибка конфигурации приложения.
-
-## Page
-
-Страница реализует интерфейс:
-
-```go
-type Page interface {
-	Init(ctx *engine.BuildContext) error
-	GetEngine() engine.Engine
-}
-```
-
-Обычно `GetEngine()` писать вручную не нужно: достаточно embedded engine.
-
-```go
-type UsersEditPage struct {
-	*engine.FormEngine
+type UsersPage struct {
+	*tableengine.TableEngine
 }
 
-func NewUsersEditPage() engine.Page {
-	return &UsersEditPage{
-		FormEngine: &engine.FormEngine{},
+func NewUsersPage() engine.Page {
+	return &UsersPage{
+		TableEngine: &tableengine.TableEngine{},
 	}
 }
-```
 
-Метод `Init` должен декларативно собрать страницу:
-
-- создать поля, контейнеры, колонки;
-- назначить обработчики событий;
-- использовать данные из `BuildContext`, если DSL зависит от пользователя, query params или route params.
-
-`Init` не должен выполнять runtime-мутации UI. Для этого есть event handlers и `RuntimeContext`.
-
-## FormEngine
-
-`FormEngine` генерирует:
-
-```text
-GET  /page/{pageKey}
-POST /event/{pageKey}/{component}/{actionID}
-POST /event/{pageKey}/dialog/{dialog}
-```
-
-Например:
-
-```text
-GET  /page/users.edit
-POST /event/users.edit/button/save
-POST /event/users.edit/text/name
-POST /event/users.edit/dialog/dialog-1
-```
-
-Routes для form events статические. Они создаются во время bootstrap из зарегистрированных listeners. Frontend не должен придумывать URL самостоятельно: он должен читать URL из `dsl.actions`.
-
-### Создание формы через helper-методы
-
-```go
-func (p *UsersEditPage) Init(ctx *engine.BuildContext) error {
-	name := p.Text("name")
-	name.SetLabel("User name")
-	name.SetOnChange(onNameChange)
-
-	email := p.Text("email")
-	email.SetLabel("Email")
-
-	save := p.Button("save")
-	save.SetLabel("Save")
-	save.SetOnClick(onSave)
-
-	return nil
-}
-```
-
-`Text` и `Button` добавляют элементы в default container. Если контейнера еще нет, `FormEngine` создаст контейнер `main`.
-
-Доступные типы input:
-
-- `select`
-- `date`
-- `datetime`
-- `text`
-- `number`
-- `checkbox`
-- `label`
-- `search`
-- `textarea`
-- `hidden`
-- `file`
-- `button`
-
-Для чтения элемента по ID есть typed getters:
-
-```go
-text, err := p.GetTextById("name")
-button, err := p.GetButtonById("save")
-checkbox, err := p.GetCheckboxById("enabled")
-```
-
-Getter возвращает ошибку, если элемента нет или его тип отличается от ожидаемого.
-
-### Создание формы через полный DSL
-
-```go
-func (p *UsersEditPage) Init(ctx *engine.BuildContext) error {
-	p.CreateForm(inputs.Form{
-		Containers: &[]inputs.Container{
-			{
-				Key:       "main",
-				Direction: "vertical",
-				Gap:       16,
-				Fields: []inputs.Input{
-					{Id: "name", Type: inputs.InputTypeText, Label: "Name"},
-					{Id: "email", Type: inputs.InputTypeText, Label: "Email"},
-					{Id: "save", Type: inputs.InputTypeButton, Label: "Save"},
-				},
+func (p *UsersPage) Init(ctx *engine.BuildContext) error {
+	p.Table("users").
+		Columns(
+			p.Column("id").
+				DataType(tableengine.TableColumnDataTypeNumber).
+				Hidden(true),
+			p.Column("name").Searchable(true),
+			p.Column("status").
+				CellType(tableengine.TableColumnCellTypeBadge).
+				ValueStyle("active", tableengine.TableCellVariantSuccess),
+		).
+		Data(tableengine.TableData{
+			Rows: []map[string]any{
+				{"id": 1, "name": "Ada", "status": "active"},
 			},
-		},
-	})
-
-	save, err := p.GetButtonById("save")
-	if err != nil {
-		return err
-	}
-	save.SetOnClick(onSave)
+			Total:    1,
+			PageSize: 20,
+		}).
+		OnReload(onReload).
+		ToolbarActions(
+			p.Action("refresh", onRefresh).
+				Icon("refresh").
+				Hotkey("F5"),
+		)
 
 	return nil
 }
-```
 
-Контейнеры могут быть вложенными. Frontend должен отрисовывать дерево `containers` рекурсивно.
+func onReload(ctx *tableengine.TableRuntimeContext) {
+	ctx.Table("users").SetData(loadUsers())
+}
 
-### Что можно делать в Init
-
-В `Init` доступны build-time controls:
-
-```go
-name := p.Text("name")
-name.SetLabel("Name")
-name.SetPlaceholder("Enter name")
-name.SetOnChange(onNameChange)
-```
-
-Здесь можно:
-
-- создавать поля и контейнеры;
-- задавать label, placeholder, validation, options, visibility и другие свойства DSL;
-- назначать `SetOnClick` и `SetOnChange`.
-
-Обработчики назначаются только в `Init`. Runtime controls не имеют `SetOnClick` и `SetOnChange`.
-
-## Event handlers
-
-Handler получает `*engine.RuntimeContext`:
-
-```go
-func onSave(ctx *engine.RuntimeContext) {
-	status, err := ctx.GetTextById("status")
-	if err != nil {
-		return
-	}
-
-	status.SetValue("Saved")
-	status.SetLabel("Current status")
+func onRefresh(ctx *tableengine.TableRuntimeContext) {
+	ctx.Table("users").SetData(loadUsers())
 }
 ```
 
-В handler можно:
-
-- получить runtime control через `ctx.GetTextById`, `ctx.GetButtonById`, `ctx.GetCheckboxById` и другие getters;
-- прочитать текущее значение из `control.Value`;
-- прочитать полный runtime element через `control.Element()`;
-- отправить mutations через `SetValue`, `SetLabel`, `SetVisibility`, `SetHint` для text input, `ctx.Form().Add`, `ctx.Remove`;
-- отправить navigation через `ctx.OpenDialog`, `ctx.OpenTab`, `ctx.Close`, `ctx.CloseWithResult`.
-- показать клиентский диалог через `ctx.ShowMessage`, `ctx.ShowWarning`, `ctx.ShowError`, `ctx.ShowSuccess`, `ctx.ShowYesNo`, `ctx.ShowOKCancel` или кастомный `ctx.ShowDialog`.
-
-В handler нельзя:
-
-- регистрировать новые event handlers;
-- полагаться на состояние, сохраненное в предыдущем запросе;
-- менять frontend неявно. Все изменения должны попасть в response как `mutations`, `navigation` или `dialogs`.
-
-Пример чтения значения, которое пришло от frontend:
-
-```go
-func onNameChange(ctx *engine.RuntimeContext) {
-	name, err := ctx.GetTextById("name")
-	if err != nil {
-		return
-	}
-
-	currentValue := name.Value
-	_ = currentValue
-
-	nameChanged, err := ctx.GetCheckboxById("nameChanged")
-	if err != nil {
-		return
-	}
-	nameChanged.SetValue(true)
-}
-```
-
-## Runtime payload формы
-
-Frontend отправляет текущее состояние элементов формы:
-
-```json
-{
-  "elements": [
-    {
-      "id": "name",
-      "type": "text",
-      "label": "User name",
-      "value": "Alice"
-    },
-    {
-      "id": "save",
-      "type": "button",
-      "label": "Save",
-      "actionId": "save",
-      "value": true
-    }
-  ],
-  "sender": {
-    "id": "save",
-    "type": "button",
-    "label": "Save",
-    "actionId": "save",
-    "value": true
-  },
-  "actionId": "save",
-  "trigger": "click",
-  "changedField": "save"
-}
-```
-
-Поля payload:
-
-- `elements` - все актуальные элементы формы вместе с runtime `value`;
-- `sender` - элемент, который вызвал событие;
-- `actionId` - ID действия или контрола;
-- `trigger` - тип события, например `click` или `change`;
-- `changedField` - ID элемента, который изменился или был нажат.
-
-Если frontend передает дополнительные свойства элемента, backend сохранит их в `ElementState.Props`.
-
-Старый формат `fields` тоже поддерживается как fallback, но новый frontend должен использовать `elements`.
-
-## Mutations
-
-Backend не делает diff UI. Handler явно записывает изменения, а frontend применяет их в полученном порядке.
-
-Поддерживаются три типа mutations:
-
-```json
-{"type":"update","path":"controls.status.value","value":"Saved"}
-{"type":"add","path":"form.controls","value":{"id":"extra","type":"text","label":"Extra"}}
-{"type":"remove","path":"controls.oldField"}
-```
-
-Частые paths:
+## Основная модель
 
 ```text
-controls.{id}.label
-controls.{id}.value
-controls.{id}.visibility
-form.controls
+Application
+  └── Manifest
+      └── page key -> PageFactory
+                       └── новая Page на каждый запрос
+                           └── FormEngine или TableEngine
 ```
 
-Go API:
+Ключевые правила:
 
-```go
-status.SetValue("Saved")
-status.SetLabel("Status")
-status.SetVisibility(true)
+- `Page` и `Engine` создаются заново на каждый HTTP-запрос;
+- `Page.Init` декларативно строит DSL и регистрирует handlers;
+- runtime-состояние нельзя хранить в полях `Page` между запросами;
+- frontend не должен самостоятельно конструировать event URL;
+- все event URL публикуются в DSL;
+- изменения UI возвращаются явно через `mutations`, `navigation` и `dialogs`;
+- frontend остается владельцем текущего визуального и navigation state.
 
-ctx.Form().Add(inputs.Input{
-	Id:    "extra",
-	Type:  inputs.InputTypeText,
-	Label: "Extra",
-})
-
-ctx.Remove("oldField")
-```
-
-## Navigation
-
-Navigation не является mutation. Она возвращается отдельным массивом:
-
-```json
-{
-  "navigation": [
-    {
-      "type": "open",
-      "mode": "dialog",
-      "page": "users.picker",
-      "extra": {
-        "group_id": 10
-      },
-      "callback": "/event/users.edit/callback/on_user_selected"
-    }
-  ]
-}
-```
-
-Go API:
-
-```go
-ctx.OpenDialog("users.picker", formengine.OpenOptions{
-	Extra: map[string]any{"group_id": 10},
-	Callback: OnUserSelected,
-})
-ctx.OpenTab("admin.roles")
-ctx.Close()
-ctx.CloseWithResult(map[string]any{"saved": true})
-```
-
-Frontend сам владеет navigation stack, opened pages, callback routes и extra/result params. При открытии page/dialog/tab frontend передаёт `extra` как query params, например `GET /page/users.picker?group_id=10`. Backend остается stateless.
-
-## Dialogs
-
-Dialogs не являются mutations или navigation. Они возвращаются отдельным блоком `dialogs`:
-
-```json
-{
-  "dialogs": [
-    {
-      "title": "Saved",
-      "description": "User was saved",
-      "level": "success",
-      "actions": [
-        {
-          "name": "OK",
-          "value": "ok"
-        }
-      ]
-    }
-  ]
-}
-```
-
-Go API:
-
-```go
-ctx.ShowMessage("Message", "Plain message")
-ctx.ShowWarning("Warning", "Check this")
-ctx.ShowError("Error", "Something failed")
-ctx.ShowSuccess("Saved", "User was saved")
-ctx.ShowYesNo("Confirm", "Continue?", func(value string) {
-	fmt.Println(value)
-})
-ctx.ShowOKCancel("Edit", "Save changes?", func(value string) {
-	fmt.Println(value)
-})
-
-ctx.ShowDialog(engine.Dialog{
-	Title:       "Custom",
-	Description: "Choose action",
-	Level:       engine.DialogWarning,
-	Actions: []engine.DialogAction{
-		{Name: "Retry", Value: "retry"},
-		{Name: "Ignore", Value: "ignore"},
-	},
-}, func(value string) {
-	fmt.Println(value)
-})
-```
-
-Если у dialog action есть callback, frontend отправляет нажатую кнопку в `url` этой action:
-
-```http
-POST /event/{pageKey}/dialog/{dialog}
-Content-Type: application/json
-
-{
-  "value": "yes"
-}
-```
-
-## TableEngine
-
-`TableEngine` генерирует:
+## Структура пакетов
 
 ```text
-GET  /page/{pageKey}
-POST /event/{pageKey}/:component/:action
+github.com/BekkkEvrika/pageSDK
+├── pageSDK                 Application и основные публичные aliases
+├── engine                  базовые контракты, contexts и runtime responses
+├── engine/formengine       FormEngine и form runtime API
+├── engine/tableengine      TableEngine и table runtime API
+├── form                    структуры Form DSL и form payload
+├── table                   структуры Table DSL и builders
+└── manifest                registry page key -> PageFactory
 ```
 
-Пример страницы:
+## Локальная проверка репозитория
 
-```go
-type UsersListPage struct {
-	*engine.TableEngine
-}
-
-func NewUsersListPage() engine.Page {
-	return &UsersListPage{
-		TableEngine: &engine.TableEngine{},
-	}
-}
-
-func (p *UsersListPage) Init(ctx *engine.BuildContext) error {
-	p.Column("id", "ID")
-	p.Column("name", "Name")
-	p.Column("email", "Email")
-	return nil
-}
+```bash
+go test ./...
+go run ./cmd/pagesdk-example
 ```
 
-Для обработки table events страница может реализовать `engine.EventHandler`:
-
-```go
-func (p *UsersListPage) HandleEvent(ctx *engine.RuntimeContext, event engine.Event) error {
-	switch event.Action {
-	case "open":
-		ctx.OpenDialog("users.edit", engine.Params{"id": event.Component})
-	}
-	return nil
-}
-```
-
-## HTTP responses
-
-Render response:
-
-```json
-{
-  "pageKey": "users.edit",
-  "engine": "form",
-  "dsl": {
-    "containers": [],
-    "actions": []
-  }
-}
-```
-
-Runtime response:
-
-```json
-{
-  "mutations": [],
-  "navigation": [],
-  "dialogs": [],
-  "result": null
-}
-```
-
-`mutations`, `navigation`, `dialogs` и `result` могут отсутствовать, если они пустые.
-
-## BuildContext и RuntimeContext
-
-`BuildContext` используется только в `Page.Init`:
-
-```go
-type BuildContext struct {
-	User   engine.User
-	System engine.SystemKeys
-	Params engine.Params
-}
-```
-
-`RuntimeContext` используется только в event handlers:
-
-```go
-type RuntimeContext struct {
-	User       engine.User
-	System     engine.SystemKeys
-	Params     engine.Params
-	Extra      map[string]any
-	FormState  *inputs.FormState
-	Sender     *inputs.ElementState
-	Mutations  []engine.Mutation
-	Navigation []engine.NavigationAction
-	Dialogs    []engine.Dialog
-}
-```
-
-Дополнительно `FormEngine` кладет в `ctx.Params["form.actionId"]` значение `actionId` из payload.
-
-## Правила для frontend-клиента
-
-Frontend должен:
-
-- загрузить страницу через `GET /page/{pageKey}`;
-- отрисовать `dsl.containers` как дерево;
-- считать `id` элементов стабильными ключами;
-- брать event URL из `dsl.actions`;
-- на событие отправлять актуальный `elements` payload;
-- применять `mutations` строго в порядке получения;
-- обрабатывать `navigation` отдельно от mutations;
-- корректно переживать `4xx/5xx`, не ломая локальное состояние UI.
-
-Более подробный протокол описан в [docs/client-events.md](docs/client-events.md).
-
-## Архитектурные правила
-
-- `Application` не знает DSL и бизнес-логику страниц.
-- `Manifest` регистрируется один раз во время bootstrap.
-- `Page` создается заново на каждый request.
-- `Engine` создается заново вместе с `Page` и хранит DSL только внутри текущего request.
-- `Init` строит DSL и регистрирует handlers.
-- Runtime handler не перестраивает приложение, а возвращает explicit mutations/navigation/dialogs.
-- Form event routes статические и детерминированные.
-- Backend не хранит UI state между запросами.
-- Frontend присылает runtime state, который нужен handler.
-- Component registry внутри `FormEngine` является индексом для поиска, а source of truth - дерево контейнеров.
-
-## Частые ошибки
-
-### Handler не найден
-
-Причина: в `Init` не был вызван `SetOnClick` или `SetOnChange` для нужного элемента, поэтому route не был сгенерирован.
-
-```go
-save := p.Button("save")
-save.SetOnClick(onSave)
-```
-
-### Control not found
-
-Причина: handler пытается получить элемент, которого нет в DSL, или использует неправильный getter.
-
-```go
-status, err := ctx.GetTextById("status")
-if err != nil {
-	return
-}
-```
-
-Если `status` имеет тип `checkbox`, `GetTextById("status")` вернет ошибку.
-
-### Значение не приходит в handler
-
-Причина: frontend не отправил элемент в `elements` или указал другой `id`.
-
-Handler читает runtime value так:
-
-```go
-name, err := ctx.GetTextById("name")
-if err != nil {
-	return
-}
-value := name.Value
-```
-
-### Изменение не видно на frontend
-
-Причина: backend изменил локальную переменную или DSL-структуру, но не записал mutation.
-
-В runtime нужно использовать методы, которые пишут mutation:
-
-```go
-field.SetValue("new value")
-field.SetLabel("New label")
-field.SetVisibility(false)
-```
-
-## Публичный entry point
-
-Пакет `github.com/BekkkEvrika/pageSDK` реэкспортирует главные типы:
-
-```go
-type Application = app.Application
-type InitFunc = app.InitFunc
-type Manifest = manifest.Manifest
-type Page = engine.Page
-type PageFactory = engine.PageFactory
-type Engine = engine.Engine
-
-func New() *Application
-```
-
-Для DSL форм, движков и контекстов используются подпакеты:
-
-```go
-import (
-	pagesdk "github.com/BekkkEvrika/pageSDK"
-	"github.com/BekkkEvrika/pageSDK/engine"
-	inputs "github.com/BekkkEvrika/pageSDK/form"
-)
-```
+Дальнейшее чтение лучше начать с
+[полного руководства](docs/user-guide.md), а при разработке frontend-клиента —
+с [протокола событий](docs/client-events.md).

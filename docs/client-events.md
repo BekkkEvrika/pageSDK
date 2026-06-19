@@ -2,6 +2,9 @@
 
 This document describes how a frontend client should work with pageSDK event routes.
 
+For installation, backend page development, lifecycle and production guidance,
+see the [pageSDK user guide](user-guide.md).
+
 ## Core idea
 
 The backend uses static, deterministic event routes generated during bootstrap.
