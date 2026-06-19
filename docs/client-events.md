@@ -232,16 +232,37 @@ payloads.
 
 ## Table column actions
 
-Each column action is exposed in `dsl.actions.column` with its own static route:
+Actions bound to a concrete column are exposed inside that column's
+`dsl.columns[].actions` list:
+
+```go
+p.Table("users").Columns(
+    p.Column("name").
+        Searchable(true).
+        AddAction(onNormalizeName, "normalize"),
+    p.Column("email").
+        AddAction(onNormalizeEmail, "normalize"),
+)
+```
 
 ```json
 {
-  "id": "normalize_names",
-  "label": "Normalize Names",
-  "url": "/event/users.list/table/users/column/normalize_names",
-  "method": "POST"
+  "id": "name",
+  "header": "Name",
+  "actions": [
+    {
+      "id": "normalize_names",
+      "label": "Normalize Names",
+      "url": "/event/users.list/table/users/column/name/normalize_names",
+      "method": "POST"
+    }
+  ]
 }
 ```
+
+Each column has its own action list and handler routes. Different columns may
+use the same action id because the column id is part of the route and backend
+handler key.
 
 The frontend sends the current values of the active column as a map. Each key
 is the unique row identifier from `dsl.rowIdKey`; each value is the current
@@ -254,7 +275,7 @@ type TableColumnActionRequest = {
 ```
 
 ```http
-POST /event/users.list/table/users/column/normalize_names
+POST /event/users.list/table/users/column/name/normalize_names
 Content-Type: application/json
 ```
 
@@ -269,7 +290,8 @@ Content-Type: application/json
 ```
 
 The backend handler reads these values from `ctx.EventTable.Column`. The
-payload must not contain `actionId`; the static route identifies the action.
+concrete column id is available as `ctx.EventTable.ColumnID`. The payload must
+not contain `actionId` or `columnId`; the static route identifies both.
 
 ## Table selected actions
 

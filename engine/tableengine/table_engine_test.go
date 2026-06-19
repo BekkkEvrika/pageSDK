@@ -34,9 +34,9 @@ type separateToolbarRoutesPage struct {
 	called string
 }
 
-type columnActionTablePage struct {
+type scopedColumnActionsTablePage struct {
 	*TableEngine
-	called *table.TableRuntimeContext
+	called string
 }
 
 type selectedActionTablePage struct {
@@ -120,12 +120,17 @@ func (p *separateToolbarRoutesPage) Init(ctx *engine.BuildContext) error {
 	return nil
 }
 
-func (p *columnActionTablePage) Init(ctx *engine.BuildContext) error {
+func (p *scopedColumnActionsTablePage) Init(ctx *engine.BuildContext) error {
 	p.Table("users").
-		Columns(p.Column("id"), p.Column("name")).
-		ColumnAction(table.ActionSchema{ID: "normalize", Label: "Normalize"}, func(ctx *table.TableRuntimeContext) {
-			p.called = ctx
-		})
+		Columns(
+			p.Column("id"),
+			p.Column("name").AddAction(func(ctx *table.TableRuntimeContext) {
+				p.called = "name:" + ctx.EventTable.ColumnID
+			}, "normalize"),
+			p.Column("email").AddAction(func(ctx *table.TableRuntimeContext) {
+				p.called = "email:" + ctx.EventTable.ColumnID
+			}, "normalize"),
+		)
 	return nil
 }
 
@@ -614,55 +619,75 @@ func TestEachToolbarActionRouteCallsOnlyItsOwnHandler(t *testing.T) {
 	}
 }
 
-func TestTableColumnActionReceivesValuesKeyedByRowID(t *testing.T) {
-	bootstrapPage := &columnActionTablePage{TableEngine: &TableEngine{}}
+func TestTableColumnActionsAreScopedByColumn(t *testing.T) {
+	bootstrapPage := &scopedColumnActionsTablePage{TableEngine: &TableEngine{}}
 	routes := bootstrapPage.TableEngine.Routes("users.list", bootstrapPage)
-	if len(routes) != 2 || routes[1].Path != "/event/users.list/table/users/column/normalize" {
-		t.Fatalf("unexpected column action routes: %#v", routes)
+	if len(routes) != 3 {
+		t.Fatalf("routes len = %d, want render plus two column actions", len(routes))
 	}
 
-	render, err := bootstrapPage.TableEngine.Render(
+	routeByPath := map[string]engine.RouteHandler{}
+	for _, route := range routes {
+		routeByPath[route.Path] = route.Handler
+	}
+	emailPath := "/event/users.list/table/users/column/email/normalize"
+	namePath := "/event/users.list/table/users/column/name/normalize"
+	if routeByPath[emailPath] == nil || routeByPath[namePath] == nil {
+		t.Fatalf("scoped column routes are missing: %#v", routes)
+	}
+
+	renderPage := &scopedColumnActionsTablePage{TableEngine: &TableEngine{}}
+	render, err := renderPage.TableEngine.Render(
 		&engine.RequestContext{PageKey: "users.list"},
-		bootstrapPage,
+		renderPage,
 	)
 	if err != nil {
 		t.Fatalf("render returned error: %v", err)
 	}
-	action := render.DSL.(table.TableSchema).Actions.Column[0]
-	if action.URL != "/event/users.list/table/users/column/normalize" ||
-		action.Method != table.HTTPMethodPOST {
-		t.Fatalf("unexpected column action DSL: %#v", action)
+	dsl := render.DSL.(table.TableSchema)
+	assertColumnAction := func(columnID, label, url string) {
+		t.Helper()
+		for _, column := range dsl.Columns {
+			if column.ID != columnID {
+				continue
+			}
+			if len(column.Actions) != 1 {
+				t.Fatalf("column %q actions = %#v, want one", columnID, column.Actions)
+			}
+			action := column.Actions[0]
+			if action.ID != "normalize" || action.Label != label ||
+				action.URL != url || action.Method != table.HTTPMethodPOST {
+				t.Fatalf("column %q action = %#v", columnID, action)
+			}
+			return
+		}
+		t.Fatalf("column %q not found", columnID)
 	}
+	assertColumnAction("name", "Normalize", namePath)
+	assertColumnAction("email", "Normalize", emailPath)
 
-	runtimePage := &columnActionTablePage{TableEngine: &TableEngine{}}
-	_, err = routes[1].Handler(&engine.RequestContext{
-		Body: []byte(`{"column":{"1":"Behzod","2":"Ali"}}`),
-	}, runtimePage)
-	if err != nil {
-		t.Fatalf("column action returned error: %v", err)
-	}
-	if runtimePage.called == nil {
-		t.Fatal("column action handler was not called")
-	}
-	ctx := runtimePage.called
-	if ctx.EventTable.Event != table.TableEventColumnAction ||
-		ctx.EventTable.ActionID != "normalize" ||
-		ctx.EventTable.Column["1"] != "Behzod" ||
-		ctx.EventTable.Column["2"] != "Ali" {
-		t.Fatalf("unexpected column action context: %#v", ctx.EventTable)
-	}
-}
-
-func TestTableColumnActionRejectsMissingColumnValues(t *testing.T) {
-	bootstrapPage := &columnActionTablePage{TableEngine: &TableEngine{}}
-	routes := bootstrapPage.TableEngine.Routes("users.list", bootstrapPage)
-
-	_, err := routes[1].Handler(
-		&engine.RequestContext{Body: []byte(`{"column":{}}`)},
-		&columnActionTablePage{TableEngine: &TableEngine{}},
+	namePage := &scopedColumnActionsTablePage{TableEngine: &TableEngine{}}
+	_, err = routeByPath[namePath](
+		&engine.RequestContext{Body: []byte(`{"column":{"1":" Behzod "}}`)},
+		namePage,
 	)
-	if err == nil {
-		t.Fatal("expected missing column values error")
+	if err != nil {
+		t.Fatalf("name action returned error: %v", err)
+	}
+	if namePage.called != "name:name" {
+		t.Fatalf("name route called %q handler", namePage.called)
+	}
+
+	emailPage := &scopedColumnActionsTablePage{TableEngine: &TableEngine{}}
+	_, err = routeByPath[emailPath](
+		&engine.RequestContext{Body: []byte(`{"column":{"1":"BEHZOD@EXAMPLE.COM"}}`)},
+		emailPage,
+	)
+	if err != nil {
+		t.Fatalf("email action returned error: %v", err)
+	}
+	if emailPage.called != "email:email" {
+		t.Fatalf("email route called %q handler", emailPage.called)
 	}
 }
 

@@ -33,9 +33,10 @@ type TableToolbarActionRegistrar interface {
 	RegisterToolbarActionHandler(tableID, actionID string, handler TableEventHandler)
 }
 
-// TableColumnActionRegistrar is implemented by runtimes that support column actions.
+// TableColumnActionRegistrar is implemented by runtimes that support actions
+// bound to one concrete table column.
 type TableColumnActionRegistrar interface {
-	RegisterColumnActionHandler(tableID, actionID string, handler TableEventHandler)
+	RegisterColumnActionHandler(tableID, columnID, actionID string, handler TableEventHandler)
 }
 
 // TableSelectedActionRegistrar is implemented by runtimes that support selected-row actions.
@@ -74,6 +75,7 @@ type TableEventContext struct {
 	TableID      string             `json:"tableId"`
 	Event        TableEventType     `json:"event"`
 	ActionID     string             `json:"actionId,omitempty"`
+	ColumnID     string             `json:"columnId,omitempty"`
 	Row          map[string]any     `json:"row,omitempty"`
 	Column       map[string]any     `json:"column,omitempty"`
 	SelectedRows []string           `json:"selectedRows,omitempty"`

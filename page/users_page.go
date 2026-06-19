@@ -31,9 +31,11 @@ func (p *UsersPage) Init(ctx *engine.BuildContext) error {
 				Hideable(false).
 				Width(80),
 			p.Column("name").
-				Searchable(true),
+				Searchable(true).
+				AddAction(onNormalizeUserNames, "normalize_names"),
 			p.Column("email").
-				Searchable(true),
+				Searchable(true).
+				AddAction(onNormalizeUserEmails, "normalize_emails"),
 			p.Column("status").
 				CellType(tableengine.TableColumnCellTypeBadge).
 				Filterable(true),
@@ -65,10 +67,6 @@ func (p *UsersPage) Init(ctx *engine.BuildContext) error {
 			Icon:    "pencil",
 			Variant: tableengine.ActionVariantSecondary,
 		}, onUserEdit).
-		ColumnAction(tableengine.ActionSchema{
-			ID:    "normalize_names",
-			Label: "Normalize Names",
-		}, onNormalizeUserNames).
 		SelectedAction(tableengine.ActionSchema{
 			ID:      "delete_selected",
 			Label:   "Delete Selected",
@@ -113,6 +111,18 @@ func onNormalizeUserNames(ctx *tableengine.TableRuntimeContext) {
 		rowID := fmt.Sprint(row["id"])
 		if name, ok := names[rowID].(string); ok {
 			row["name"] = strings.ToUpper(strings.TrimSpace(name))
+		}
+	}
+	ctx.Table("users").SetData(data)
+}
+
+func onNormalizeUserEmails(ctx *tableengine.TableRuntimeContext) {
+	emails := ctx.EventTable.Column
+	data := usersData(0, 20)
+	for _, row := range data.Rows {
+		rowID := fmt.Sprint(row["id"])
+		if email, ok := emails[rowID].(string); ok {
+			row["email"] = strings.ToLower(strings.TrimSpace(email))
 		}
 	}
 	ctx.Table("users").SetData(data)

@@ -110,6 +110,21 @@ func (b *Builder) Columns(columns ...*ColumnBuilder) *Builder {
 			continue
 		}
 		b.schema.Columns = append(b.schema.Columns, column.Schema())
+		if b.registrar == nil || b.tableID == "" {
+			continue
+		}
+		registrar, ok := b.registrar.(TableColumnActionRegistrar)
+		if !ok {
+			continue
+		}
+		for _, pending := range column.pendingActions {
+			registrar.RegisterColumnActionHandler(
+				b.tableID,
+				column.column.ID,
+				pending.actionID,
+				pending.handler,
+			)
+		}
 	}
 	return b
 }
@@ -200,28 +215,6 @@ func (b *Builder) RowAction(action ActionSchema, handler TableEventHandler) *Bui
 	return b
 }
 
-// ColumnAction appends a column action and registers its handler.
-func (b *Builder) ColumnAction(action ActionSchema, handler TableEventHandler) *Builder {
-	if action.ID == "" || handler == nil || b.registrar == nil || b.tableID == "" {
-		return b
-	}
-	registrar, ok := b.registrar.(TableColumnActionRegistrar)
-	if !ok {
-		return b
-	}
-	if action.Label == "" {
-		action.Label = titleFromName(action.ID)
-	}
-	actions := b.schema.Actions
-	if actions == nil {
-		actions = &TableActionGroups{}
-		b.schema.Actions = actions
-	}
-	actions.Column = append(actions.Column, action)
-	registrar.RegisterColumnActionHandler(b.tableID, action.ID, handler)
-	return b
-}
-
 // SelectedAction appends a selected-row action and registers its handler.
 func (b *Builder) SelectedAction(action ActionSchema, handler TableEventHandler) *Builder {
 	if action.ID == "" || handler == nil || b.registrar == nil || b.tableID == "" {
@@ -301,7 +294,13 @@ func (b *Builder) SetData(data any) {
 
 // ColumnBuilder builds a TableColumnSchema.
 type ColumnBuilder struct {
-	column *TableColumnSchema
+	column         *TableColumnSchema
+	pendingActions []pendingColumnAction
+}
+
+type pendingColumnAction struct {
+	actionID string
+	handler  TableEventHandler
 }
 
 // Schema returns a copy of the built column schema.
@@ -351,6 +350,23 @@ func (b *ColumnBuilder) Filterable(filterable bool) *ColumnBuilder {
 // Searchable toggles global search participation.
 func (b *ColumnBuilder) Searchable(searchable bool) *ColumnBuilder {
 	b.column.Searchable = searchable
+	return b
+}
+
+// AddAction appends an action to this column. The handler is registered when
+// the column is attached to a runtime table through Builder.Columns.
+func (b *ColumnBuilder) AddAction(handler TableEventHandler, name string) *ColumnBuilder {
+	if b == nil || b.column == nil || handler == nil || name == "" {
+		return b
+	}
+	b.column.Actions = append(b.column.Actions, ActionSchema{
+		ID:    name,
+		Label: titleFromName(name),
+	})
+	b.pendingActions = append(b.pendingActions, pendingColumnAction{
+		actionID: name,
+		handler:  handler,
+	})
 	return b
 }
 
@@ -601,12 +617,6 @@ func (t *TableSchema) AddToolbarAction(action ActionSchema) {
 func (t *TableSchema) AddRowAction(action ActionSchema) {
 	actions := t.ActionsConfig()
 	actions.Row = append(actions.Row, action)
-}
-
-// AddColumnAction appends a column action.
-func (t *TableSchema) AddColumnAction(action ActionSchema) {
-	actions := t.ActionsConfig()
-	actions.Column = append(actions.Column, action)
 }
 
 // AddSelectedAction appends an action for selected rows.

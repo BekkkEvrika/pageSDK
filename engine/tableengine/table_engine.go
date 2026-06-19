@@ -27,6 +27,7 @@ type tableEventKey struct {
 	TableID  string
 	Event    table.TableEventType
 	ActionID string
+	ColumnID string
 }
 
 // TableDSL is kept for compatibility. New code should use table.TableSchema.
@@ -113,11 +114,6 @@ func (t *TableEngine) RowAction(action table.ActionSchema, handler table.TableEv
 	return t.builder().RowAction(action, handler)
 }
 
-// ColumnAction appends a column action and registers its handler.
-func (t *TableEngine) ColumnAction(action table.ActionSchema, handler table.TableEventHandler) *table.Builder {
-	return t.builder().ColumnAction(action, handler)
-}
-
 // SelectedAction appends an action for selected rows and registers its handler.
 func (t *TableEngine) SelectedAction(action table.ActionSchema, handler table.TableEventHandler) *table.Builder {
 	return t.builder().SelectedAction(action, handler)
@@ -160,12 +156,6 @@ func (t *TableEngine) AddToolbarAction(action table.ActionSchema) {
 func (t *TableEngine) AddRowAction(action table.ActionSchema) {
 	t.ensureDSL()
 	t.dsl.AddRowAction(action)
-}
-
-// AddColumnAction appends a column action.
-func (t *TableEngine) AddColumnAction(action table.ActionSchema) {
-	t.ensureDSL()
-	t.dsl.AddColumnAction(action)
 }
 
 // AddSelectedAction appends an action for selected rows.
@@ -301,9 +291,25 @@ func (t *TableEngine) RegisterToolbarActionHandler(tableID, actionID string, han
 	}] = handler
 }
 
-// RegisterColumnActionHandler registers a column action handler.
-func (t *TableEngine) RegisterColumnActionHandler(tableID, actionID string, handler table.TableEventHandler) {
-	t.registerActionHandler(tableID, actionID, table.TableEventColumnAction, handler)
+// RegisterColumnActionHandler registers a handler for one concrete column.
+func (t *TableEngine) RegisterColumnActionHandler(
+	tableID string,
+	columnID string,
+	actionID string,
+	handler table.TableEventHandler,
+) {
+	if handler == nil || tableID == "" || columnID == "" || actionID == "" {
+		return
+	}
+	if t.handlers == nil {
+		t.handlers = map[tableEventKey]table.TableEventHandler{}
+	}
+	t.handlers[tableEventKey{
+		TableID:  tableID,
+		Event:    table.TableEventColumnAction,
+		ActionID: actionID,
+		ColumnID: columnID,
+	}] = handler
 }
 
 // RegisterSelectedActionHandler registers a selected-row action handler.
@@ -369,6 +375,9 @@ func (t *TableEngine) eventKeys() []tableEventKey {
 			leftOrder := tableEventOrder(keys[i].Event)
 			rightOrder := tableEventOrder(keys[j].Event)
 			if leftOrder == rightOrder {
+				if keys[i].ColumnID != keys[j].ColumnID {
+					return keys[i].ColumnID < keys[j].ColumnID
+				}
 				return keys[i].ActionID < keys[j].ActionID
 			}
 			return leftOrder < rightOrder
@@ -501,6 +510,7 @@ func (t *TableEngine) runtimeContext(req *engine.RequestContext, key tableEventK
 			TableID:      key.TableID,
 			Event:        key.Event,
 			ActionID:     key.ActionID,
+			ColumnID:     key.ColumnID,
 			Row:          row,
 			Column:       column,
 			SelectedRows: selectedRows,
@@ -542,7 +552,7 @@ func tableEventRoutePath(pageKey string, key tableEventKey) string {
 	case table.TableEventToolbarAction:
 		return "/event/" + pageKey + "/table/" + key.TableID + "/toolbar/" + key.ActionID
 	case table.TableEventColumnAction:
-		return "/event/" + pageKey + "/table/" + key.TableID + "/column/" + key.ActionID
+		return "/event/" + pageKey + "/table/" + key.TableID + "/column/" + key.ColumnID + "/" + key.ActionID
 	case table.TableEventSelectedAction:
 		return "/event/" + pageKey + "/table/" + key.TableID + "/selected/" + key.ActionID
 	}
@@ -586,10 +596,14 @@ func (t *TableEngine) bindToolbarActionRoute(pageKey string, key tableEventKey) 
 }
 
 func (t *TableEngine) bindColumnActionRoute(pageKey string, key tableEventKey) {
-	if t.dsl.Actions == nil {
+	for i := range t.dsl.Columns {
+		column := &t.dsl.Columns[i]
+		if column.ID != key.ColumnID {
+			continue
+		}
+		t.bindActionRoute(column.Actions, pageKey, key)
 		return
 	}
-	t.bindActionRoute(t.dsl.Actions.Column, pageKey, key)
 }
 
 func (t *TableEngine) bindSelectedActionRoute(pageKey string, key tableEventKey) {

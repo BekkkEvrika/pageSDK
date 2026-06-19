@@ -33,6 +33,7 @@ type TableColumnSchema struct {
 	Header      string          `json:"header"`
 	Kind        TableColumnKind `json:"kind,omitempty"`
 	AccessorKey string          `json:"accessorKey,omitempty"`
+	Actions     []ActionSchema  `json:"actions,omitempty"`
 
 	Hidden bool `json:"hidden,omitempty"`
 
@@ -63,7 +64,6 @@ type TableData struct {
 type TableActionGroups struct {
 	Toolbar  []ActionSchema `json:"toolbar,omitempty"`
 	Row      []ActionSchema `json:"row,omitempty"`
-	Column   []ActionSchema `json:"column,omitempty"`
 	Selected []ActionSchema `json:"selected,omitempty"`
 }
 
