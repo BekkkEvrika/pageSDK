@@ -15,6 +15,7 @@ type RuntimeNode interface {
 // RuntimeContext is used only by FormEngine event handlers.
 type RuntimeContext struct {
 	PageKey    string
+	Module     string
 	User       engine.User
 	System     engine.SystemKeys
 	Params     engine.Params
@@ -72,6 +73,7 @@ func NewRuntimeContext(req *engine.RequestContext) *RuntimeContext {
 	}
 	return &RuntimeContext{
 		PageKey: req.PageKey,
+		Module:  req.Module,
 		User:    req.User,
 		System:  req.System,
 		Params:  params,
@@ -170,7 +172,7 @@ func (ctx *RuntimeContext) OpenPage(page string, options ...any) {
 
 func (ctx *RuntimeContext) ShowDialog(dialog engine.Dialog, handler ...DialogHandler) {
 	if len(handler) > 0 {
-		dialog = bindDialogHandler(ctx.PageKey, dialog, handler[0])
+		dialog = bindDialogHandler(ctx.PageKey, dialog, handler[0], ctx.Module)
 	}
 	ctx.Dialogs = append(ctx.Dialogs, dialog)
 }
@@ -442,7 +444,7 @@ func (ctx *RuntimeContext) showDialogWithHandler(title, description string, leve
 		Description: description,
 		Level:       level,
 		Actions:     actions,
-	}, handler))
+	}, handler, ctx.Module))
 }
 
 func okDialogActions() []engine.DialogAction {
@@ -538,7 +540,7 @@ func (ctx *RuntimeContext) openAction(page string, mode engine.NavigationMode, o
 		Extra: openOptions.Extra,
 	}
 	if openOptions.Callback != nil {
-		action.Callback = registerNavigationCallback(ctx.PageKey, openOptions.Callback)
+		action.Callback = registerNavigationCallback(ctx.PageKey, openOptions.Callback, ctx.Module)
 	}
 	return action, nil
 }

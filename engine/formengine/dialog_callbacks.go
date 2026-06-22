@@ -25,14 +25,18 @@ type dialogCallbackPayload struct {
 	Name        string `json:"name,omitempty"`
 }
 
-func bindDialogHandler(pageKey string, dialog engine.Dialog, handler DialogHandler) engine.Dialog {
+func bindDialogHandler(pageKey string, dialog engine.Dialog, handler DialogHandler, module ...string) engine.Dialog {
 	if handler == nil {
 		return dialog
 	}
 	id := "dialog-" + strconv.FormatUint(atomic.AddUint64(&dialogCallbackSeq, 1), 10)
 	dialogCallbackHandlers.Store(id, handler)
 
-	url := dialogEventRoutePath(pageKey, id)
+	moduleName := ""
+	if len(module) > 0 {
+		moduleName = module[0]
+	}
+	url := dialogEventRoutePath(moduleName, pageKey, id)
 	for i := range dialog.Actions {
 		dialog.Actions[i].URL = url
 		dialog.Actions[i].Method = http.MethodPost
@@ -81,9 +85,18 @@ func dialogActionValue(ctx *engine.RequestContext) (string, error) {
 	}
 }
 
-func dialogEventRoutePath(pageKey, dialogID string) string {
+func dialogEventRoutePath(args ...string) string {
+	var module, pageKey, dialogID string
+	switch len(args) {
+	case 2:
+		pageKey, dialogID = args[0], args[1]
+	case 3:
+		module, pageKey, dialogID = args[0], args[1], args[2]
+	default:
+		return ""
+	}
 	if pageKey == "" {
 		pageKey = "{page}"
 	}
-	return "/event/" + pageKey + "/dialog/" + dialogID
+	return engine.RoutePath(module, "/event/"+pageKey+"/dialog/"+dialogID)
 }

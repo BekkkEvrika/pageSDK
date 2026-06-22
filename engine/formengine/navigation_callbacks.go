@@ -14,11 +14,15 @@ import (
 
 var navigationCallbackHandlers sync.Map
 
-func registerNavigationCallback(pageKey string, handler NavigationCallback) string {
+func registerNavigationCallback(pageKey string, handler NavigationCallback, module ...string) string {
 	name := navigationCallbackName(handler)
 	key := navigationCallbackKey(pageKey, name)
 	navigationCallbackHandlers.Store(key, handler)
-	return navigationCallbackRoutePath(pageKey, name)
+	moduleName := ""
+	if len(module) > 0 {
+		moduleName = module[0]
+	}
+	return navigationCallbackRoutePath(moduleName, pageKey, name)
 }
 
 // HandleCallback dispatches a navigation callback event registered by OpenDialog/OpenTab/OpenPage.
@@ -135,6 +139,15 @@ func navigationCallbackKey(pageKey, name string) string {
 	return pageKey + "/" + name
 }
 
-func navigationCallbackRoutePath(pageKey, name string) string {
-	return "/event/" + pageKey + "/callback/" + name
+func navigationCallbackRoutePath(args ...string) string {
+	var module, pageKey, name string
+	switch len(args) {
+	case 2:
+		pageKey, name = args[0], args[1]
+	case 3:
+		module, pageKey, name = args[0], args[1], args[2]
+	default:
+		return ""
+	}
+	return engine.RoutePath(module, "/event/"+pageKey+"/callback/"+name)
 }

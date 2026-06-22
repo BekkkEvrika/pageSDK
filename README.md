@@ -45,8 +45,11 @@ import (
 )
 
 func main() {
-	app := pagesdk.New()
-	if err := app.Bootstrap(registerPages, ":8080"); err != nil {
+	app := pagesdk.New(pagesdk.Config{
+		Module:             "clients",
+		AccessManifestPath: "sfp.access.yaml",
+	})
+	if err := app.Run(registerPages, ":8080"); err != nil {
 		panic(err)
 	}
 }
@@ -100,8 +103,33 @@ go run .
 Получение страницы:
 
 ```bash
-curl http://localhost:8080/page/users.edit
+curl http://localhost:8080/clients/page/users.edit
 ```
+
+Если `Module` пустой, старые маршруты `/page/...` и `/event/...` остаются
+без изменений.
+
+## UI access manifest
+
+После перехода entrypoint с `Bootstrap` на `Run` собранный сервис поддерживает:
+
+```bash
+./service serve
+./service access generate
+./service access validate
+./service access diff
+./service access sync --dry-run
+```
+
+`access generate` собирает page, form event, table event/action и column-view
+ключи из зарегистрированного DSL. Повторная генерация сохраняет вручную
+созданные `permissionGroups` и описания, а исчезнувшие ключи переносит в
+`stale`.
+
+Для реальной синхронизации с Keycloak приложение может установить реализацию
+`pagesdk.AccessSyncProvider` через `app.SetAccessSyncProvider`. Встроенный
+provider намеренно поддерживает только безопасный `--dry-run` и возвращает
+понятную ошибку для реальной синхронизации.
 
 Render response содержит тип движка и DSL:
 

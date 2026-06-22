@@ -359,7 +359,7 @@ func (f *FormEngine) Render(ctx *engine.RequestContext, page engine.Page) (*engi
 	if err := page.Init(ctx.BuildContext()); err != nil {
 		return nil, err
 	}
-	f.bindFormActionRoutes(ctx.PageKey)
+	f.bindFormActionRoutes(ctx.Module, ctx.PageKey)
 
 	return &engine.RenderResult{
 		PageKey: ctx.PageKey,
@@ -519,13 +519,17 @@ func (f *FormEngine) generateEventRoutes(pageKey string) {
 	}
 }
 
-func (f *FormEngine) upsertGeneratedFormAction(component, action string, trigger inputs.FormActionTrigger, pageKey string) {
+func (f *FormEngine) upsertGeneratedFormAction(component, action string, trigger inputs.FormActionTrigger, pageKey string, module ...string) {
+	moduleName := ""
+	if len(module) > 0 {
+		moduleName = module[0]
+	}
 	generated := inputs.FormAction{
 		ID:      action,
 		Trigger: trigger,
 		Config: &inputs.FormActionConfig{
 			Type:   formActionType(trigger),
-			URL:    eventRoutePath(pageKey, component, action),
+			URL:    eventRoutePath(moduleName, pageKey, component, action),
 			Method: http.MethodPost,
 		},
 	}
@@ -547,7 +551,7 @@ func (f *FormEngine) upsertGeneratedFormAction(component, action string, trigger
 	f.formActions = actions
 }
 
-func (f *FormEngine) bindFormActionRoutes(pageKey string) {
+func (f *FormEngine) bindFormActionRoutes(module, pageKey string) {
 	if pageKey == "" {
 		return
 	}
@@ -556,7 +560,7 @@ func (f *FormEngine) bindFormActionRoutes(pageKey string) {
 		if !ok {
 			continue
 		}
-		f.upsertGeneratedFormAction(key.Component, key.Action, trigger, pageKey)
+		f.upsertGeneratedFormAction(key.Component, key.Action, trigger, pageKey, module)
 	}
 }
 
@@ -576,11 +580,20 @@ func formActionType(trigger inputs.FormActionTrigger) inputs.FormActionType {
 	return inputs.APICall
 }
 
-func eventRoutePath(pageKey, component, action string) string {
+func eventRoutePath(args ...string) string {
+	var module, pageKey, component, action string
+	switch len(args) {
+	case 3:
+		pageKey, component, action = args[0], args[1], args[2]
+	case 4:
+		module, pageKey, component, action = args[0], args[1], args[2], args[3]
+	default:
+		return ""
+	}
 	if pageKey == "" {
 		pageKey = "{page}"
 	}
-	return "/event/" + pageKey + "/" + component + "/" + action
+	return engine.RoutePath(module, "/event/"+pageKey+"/"+component+"/"+action)
 }
 
 func (f *FormEngine) registerComponent(input inputs.Input, parentID, parentPath string) {

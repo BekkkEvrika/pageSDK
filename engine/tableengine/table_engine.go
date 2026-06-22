@@ -216,7 +216,7 @@ func (t *TableEngine) Render(ctx *engine.RequestContext, page engine.Page) (*eng
 	if err := page.Init(ctx.BuildContext()); err != nil {
 		return nil, err
 	}
-	t.bindEventRoutes(ctx.PageKey)
+	t.bindEventRoutes(ctx.PageKey, ctx.Module)
 
 	return &engine.RenderResult{
 		PageKey: ctx.PageKey,
@@ -397,7 +397,11 @@ func (t *TableEngine) eventKeys() []tableEventKey {
 	return keys
 }
 
-func (t *TableEngine) bindEventRoutes(pageKey string) {
+func (t *TableEngine) bindEventRoutes(pageKey string, module ...string) {
+	moduleName := ""
+	if len(module) > 0 {
+		moduleName = module[0]
+	}
 	if pageKey == "" || len(t.handlers) == 0 {
 		t.dsl.Events = nil
 		return
@@ -407,21 +411,21 @@ func (t *TableEngine) bindEventRoutes(pageKey string) {
 	for _, key := range t.eventKeys() {
 		switch key.Event {
 		case table.TableEventRowAction:
-			t.bindRowActionRoute(pageKey, key)
+			t.bindRowActionRoute(pageKey, key, moduleName)
 			continue
 		case table.TableEventToolbarAction:
-			t.bindToolbarActionRoute(pageKey, key)
+			t.bindToolbarActionRoute(pageKey, key, moduleName)
 			continue
 		case table.TableEventColumnAction:
-			t.bindColumnActionRoute(pageKey, key)
+			t.bindColumnActionRoute(pageKey, key, moduleName)
 			continue
 		case table.TableEventSelectedAction:
-			t.bindSelectedActionRoute(pageKey, key)
+			t.bindSelectedActionRoute(pageKey, key, moduleName)
 			continue
 		}
 		hasTableEvents = true
 		route := &table.TableEventRoute{
-			URL:    tableEventRoutePath(pageKey, key),
+			URL:    tableEventRoutePath(pageKey, key, moduleName),
 			Method: table.HTTPMethodPOST,
 		}
 		switch key.Event {
@@ -552,18 +556,25 @@ func mergeTableState(state *table.TableStateConfig, payload table.TableEventRequ
 	}
 }
 
-func tableEventRoutePath(pageKey string, key tableEventKey) string {
+func tableEventRoutePath(pageKey string, key tableEventKey, module ...string) string {
+	moduleName := ""
+	if len(module) > 0 {
+		moduleName = module[0]
+	}
+	path := ""
 	switch key.Event {
 	case table.TableEventRowAction:
-		return "/event/" + pageKey + "/table/" + key.TableID + "/row/" + key.ActionID
+		path = "/event/" + pageKey + "/table/" + key.TableID + "/row/" + key.ActionID
 	case table.TableEventToolbarAction:
-		return "/event/" + pageKey + "/table/" + key.TableID + "/toolbar/" + key.ActionID
+		path = "/event/" + pageKey + "/table/" + key.TableID + "/toolbar/" + key.ActionID
 	case table.TableEventColumnAction:
-		return "/event/" + pageKey + "/table/" + key.TableID + "/column/" + key.ColumnID + "/" + key.ActionID
+		path = "/event/" + pageKey + "/table/" + key.TableID + "/column/" + key.ColumnID + "/" + key.ActionID
 	case table.TableEventSelectedAction:
-		return "/event/" + pageKey + "/table/" + key.TableID + "/selected/" + key.ActionID
+		path = "/event/" + pageKey + "/table/" + key.TableID + "/selected/" + key.ActionID
+	default:
+		path = "/event/" + pageKey + "/table/" + key.TableID + "/" + string(key.Event)
 	}
-	return "/event/" + pageKey + "/table/" + key.TableID + "/" + string(key.Event)
+	return engine.RoutePath(moduleName, path)
 }
 
 func tableEventOrder(event table.TableEventType) int {
@@ -587,7 +598,7 @@ func tableEventOrder(event table.TableEventType) int {
 	}
 }
 
-func (t *TableEngine) bindToolbarActionRoute(pageKey string, key tableEventKey) {
+func (t *TableEngine) bindToolbarActionRoute(pageKey string, key tableEventKey, module ...string) {
 	if t.dsl.Actions == nil {
 		return
 	}
@@ -596,42 +607,42 @@ func (t *TableEngine) bindToolbarActionRoute(pageKey string, key tableEventKey) 
 		if action.ID != key.ActionID {
 			continue
 		}
-		action.URL = tableEventRoutePath(pageKey, key)
+		action.URL = tableEventRoutePath(pageKey, key, module...)
 		action.Method = table.HTTPMethodPOST
 		return
 	}
 }
 
-func (t *TableEngine) bindColumnActionRoute(pageKey string, key tableEventKey) {
+func (t *TableEngine) bindColumnActionRoute(pageKey string, key tableEventKey, module ...string) {
 	for i := range t.dsl.Columns {
 		column := &t.dsl.Columns[i]
 		if column.ID != key.ColumnID {
 			continue
 		}
-		t.bindActionRoute(column.Actions, pageKey, key)
+		t.bindActionRoute(column.Actions, pageKey, key, module...)
 		return
 	}
 }
 
-func (t *TableEngine) bindSelectedActionRoute(pageKey string, key tableEventKey) {
+func (t *TableEngine) bindSelectedActionRoute(pageKey string, key tableEventKey, module ...string) {
 	if t.dsl.Actions == nil {
 		return
 	}
-	t.bindActionRoute(t.dsl.Actions.Selected, pageKey, key)
+	t.bindActionRoute(t.dsl.Actions.Selected, pageKey, key, module...)
 }
 
-func (t *TableEngine) bindActionRoute(actions []table.ActionSchema, pageKey string, key tableEventKey) {
+func (t *TableEngine) bindActionRoute(actions []table.ActionSchema, pageKey string, key tableEventKey, module ...string) {
 	for i := range actions {
 		if actions[i].ID != key.ActionID {
 			continue
 		}
-		actions[i].URL = tableEventRoutePath(pageKey, key)
+		actions[i].URL = tableEventRoutePath(pageKey, key, module...)
 		actions[i].Method = table.HTTPMethodPOST
 		return
 	}
 }
 
-func (t *TableEngine) bindRowActionRoute(pageKey string, key tableEventKey) {
+func (t *TableEngine) bindRowActionRoute(pageKey string, key tableEventKey, module ...string) {
 	if t.dsl.Actions == nil {
 		return
 	}
@@ -640,7 +651,7 @@ func (t *TableEngine) bindRowActionRoute(pageKey string, key tableEventKey) {
 		if action.ID != key.ActionID {
 			continue
 		}
-		action.URL = tableEventRoutePath(pageKey, key)
+		action.URL = tableEventRoutePath(pageKey, key, module...)
 		action.Method = table.HTTPMethodPOST
 		return
 	}

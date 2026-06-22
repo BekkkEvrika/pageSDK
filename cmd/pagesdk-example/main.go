@@ -10,7 +10,7 @@ import (
 func main() {
 	application := pagesdk.New()
 
-	if err := application.Bootstrap(projectInitial, ":8080"); err != nil {
+	if err := application.Run(projectInitial, ":8080"); err != nil {
 		panic(err)
 	}
 }

@@ -1,5 +1,7 @@
 package engine
 
+import "strings"
+
 // Engine — интерфейс, который должен реализовывать каждый движок.
 // Engine хранит DSL/runtime state только внутри конкретного per-request instance.
 // Он предоставляет runtime strategy: routes, DSL rendering и event handling.
@@ -22,6 +24,7 @@ type Engine interface {
 // Application builds it from Gin, but Page and Engine do not receive Gin directly.
 type RequestContext struct {
 	PageKey string
+	Module  string
 	Params  Params
 	Query   Params
 	User    User
@@ -39,6 +42,15 @@ type RouteDefinition struct {
 // RouteHandler — runtime handler route, который Application вызывает
 // со свежим Page instance на каждый request.
 type RouteHandler func(ctx *RequestContext, page Page) (any, error)
+
+// RoutePath adds an optional module prefix to a framework-owned route.
+func RoutePath(module, path string) string {
+	module = strings.Trim(module, "/ ")
+	if module == "" {
+		return path
+	}
+	return "/" + module + "/" + strings.TrimPrefix(path, "/")
+}
 
 // RenderResult is returned for DSL requests.
 type RenderResult struct {

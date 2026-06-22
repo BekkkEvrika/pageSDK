@@ -3,6 +3,7 @@
 package pagesdk
 
 import (
+	"github.com/BekkkEvrika/pageSDK/access"
 	"github.com/BekkkEvrika/pageSDK/app"
 	"github.com/BekkkEvrika/pageSDK/engine"
 	"github.com/BekkkEvrika/pageSDK/manifest"
@@ -10,6 +11,14 @@ import (
 
 // Application is the framework orchestrator.
 type Application = app.Application
+type Config = app.Config
+
+type AccessManifest = access.Manifest
+type AccessResource = access.Resource
+type PermissionGroup = access.PermissionGroup
+type AccessSyncProvider = access.AccessSyncProvider
+type AccessSyncOptions = access.SyncOptions
+type AccessDiff = access.Diff
 
 // InitFunc registers application pages during bootstrap.
 type InitFunc = app.InitFunc
@@ -43,6 +52,6 @@ const (
 )
 
 // New creates a new pageSDK application.
-func New() *Application {
-	return app.New()
+func New(config ...Config) *Application {
+	return app.New(config...)
 }

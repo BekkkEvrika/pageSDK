@@ -1,9 +1,16 @@
 package app
 
 import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strings"
 
+	"github.com/BekkkEvrika/pageSDK/access"
 	"github.com/BekkkEvrika/pageSDK/engine"
 	"github.com/BekkkEvrika/pageSDK/logging"
 	"github.com/BekkkEvrika/pageSDK/manifest"
@@ -18,16 +25,36 @@ type InitFunc func(app *Application)
 // Хранит manifest, запускает bootstrap, регистрирует routes в Gin.
 // НЕ знает о DSL, UI логике, бизнес-логике.
 type Application struct {
-	manifest *manifest.Manifest
-	router   *gin.Engine
+	manifest    *manifest.Manifest
+	router      *gin.Engine
+	config      Config
+	syncer      access.AccessSyncProvider
+	initialized bool
+}
+
+type Config struct {
+	Module             string
+	KeycloakURL        string
+	Realm              string
+	ClientID           string
+	ClientSecret       string
+	AccessManifestPath string
 }
 
 // New создаёт новый Application.
-func New() *Application {
-	return &Application{
+func New(config ...Config) *Application {
+	a := &Application{
 		manifest: manifest.New(),
 		router:   gin.New(),
 	}
+	if len(config) > 0 {
+		a.config = config[0]
+	}
+	if a.config.AccessManifestPath == "" {
+		a.config.AccessManifestPath = "sfp.access.yaml"
+	}
+	a.syncer = access.UnsupportedKeycloakProvider{Config: a.accessConfig()}
+	return a
 }
 
 // Manifest возвращает манифест приложения.
@@ -36,19 +63,162 @@ func (a *Application) Manifest() *manifest.Manifest {
 	return a.manifest
 }
 
+func (a *Application) Config() Config {
+	return a.config
+}
+
+func (a *Application) SetAccessSyncProvider(provider access.AccessSyncProvider) {
+	if provider != nil {
+		a.syncer = provider
+	}
+}
+
 // Bootstrap запускает lifecycle:
 // 1. Вызывает initFn — проект заполняет manifest.
 // 2. Генерирует routes для всех pages из manifest.
 // 3. Запускает Gin на указанном адресе.
 func (a *Application) Bootstrap(initFn InitFunc, addr string) error {
-	// Шаг 1: проект регистрирует свои pages
-	initFn(a)
+	a.initialize(initFn)
 
 	// Шаг 2: auto route generation из manifest
 	a.registerRoutes()
 
 	// Шаг 3: запуск HTTP сервера
 	return a.router.Run(addr)
+}
+
+// Run dispatches CLI commands and keeps "no arguments" compatible with the
+// historical HTTP-server entrypoint.
+func (a *Application) Run(initFn InitFunc, addr string) error {
+	return a.Execute(context.Background(), initFn, addr, os.Args[1:], os.Stdout)
+}
+
+func (a *Application) Execute(ctx context.Context, initFn InitFunc, addr string, args []string, output io.Writer) error {
+	if len(args) == 0 || args[0] == "serve" {
+		return a.Bootstrap(initFn, addr)
+	}
+	if args[0] != "access" {
+		return fmt.Errorf("unknown command %q (expected serve or access)", args[0])
+	}
+	if len(args) < 2 {
+		return errors.New("access command requires one of: generate, validate, diff, sync")
+	}
+	a.initialize(initFn)
+	path := a.config.AccessManifestPath
+	switch args[1] {
+	case "generate":
+		resources, err := access.Collect(a.manifest, a.config.Module)
+		if err != nil {
+			return err
+		}
+		generated, err := access.Generate(path, a.config.Module, resources)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(output, "generated %s (%d resources, %d stale, %d groups)\n",
+			path, len(generated.Resources), len(generated.Stale), len(generated.PermissionGroups))
+		return nil
+	case "validate":
+		value, err := access.Read(path)
+		if err != nil {
+			return err
+		}
+		if err := access.Validate(value, a.config.Module); err != nil {
+			return err
+		}
+		fmt.Fprintf(output, "%s is valid\n", path)
+		return nil
+	case "diff":
+		resources, err := access.Collect(a.manifest, a.config.Module)
+		if err != nil {
+			return err
+		}
+		value, err := access.Read(path)
+		if err != nil {
+			return err
+		}
+		printDiff(output, access.Compare(resources, value))
+		return nil
+	case "sync":
+		flags := flag.NewFlagSet("access sync", flag.ContinueOnError)
+		flags.SetOutput(output)
+		dryRun := flags.Bool("dry-run", false, "print and validate the local sync plan without changing Keycloak")
+		if err := flags.Parse(args[2:]); err != nil {
+			return err
+		}
+		value, err := access.Read(path)
+		if err != nil {
+			return err
+		}
+		if err := access.Validate(value, a.config.Module); err != nil {
+			return err
+		}
+		if *dryRun {
+			fmt.Fprintf(output, "dry-run: would sync %d resources and %d permission groups\n",
+				len(value.Resources), len(value.PermissionGroups))
+		}
+		if !*dryRun && missingKeycloakConfig(a.config) != "" {
+			return fmt.Errorf("access sync: missing Keycloak config: %s", missingKeycloakConfig(a.config))
+		}
+		return a.syncer.Sync(ctx, value, access.SyncOptions{DryRun: *dryRun})
+	default:
+		return fmt.Errorf("unknown access command %q", args[1])
+	}
+}
+
+func (a *Application) initialize(initFn InitFunc) {
+	if a.initialized {
+		return
+	}
+	initFn(a)
+	a.initialized = true
+}
+
+func (a *Application) accessConfig() access.Config {
+	return access.Config{
+		Module:       a.config.Module,
+		ManifestPath: a.config.AccessManifestPath,
+		KeycloakURL:  a.config.KeycloakURL,
+		Realm:        a.config.Realm,
+		ClientID:     a.config.ClientID,
+		ClientSecret: a.config.ClientSecret,
+	}
+}
+
+func missingKeycloakConfig(config Config) string {
+	var missing []string
+	if config.KeycloakURL == "" {
+		missing = append(missing, "KeycloakURL")
+	}
+	if config.Realm == "" {
+		missing = append(missing, "Realm")
+	}
+	if config.ClientID == "" {
+		missing = append(missing, "ClientID")
+	}
+	if config.ClientSecret == "" {
+		missing = append(missing, "ClientSecret")
+	}
+	return strings.Join(missing, ", ")
+}
+
+func printDiff(output io.Writer, diff access.Diff) {
+	printDiffSection(output, "New in DSL", diff.NewInDSL)
+	printDiffSection(output, "Missing in DSL / stale", diff.MissingInDSL)
+	printDiffSection(output, "Missing in manifest", diff.MissingInManifest)
+	printDiffSection(output, "Existing groups", diff.ExistingGroups)
+	printDiffSection(output, "Broken group permissions", diff.BrokenGroupPermissions)
+}
+
+func printDiffSection(output io.Writer, title string, values []string) {
+	fmt.Fprintln(output, title+":")
+	if len(values) == 0 {
+		fmt.Fprintln(output, "  (none)")
+		return
+	}
+	for _, value := range values {
+		fmt.Fprintln(output, "  - "+value)
+	}
 }
 
 // registerRoutes итерирует manifest и получает route metadata из sample Engine.
@@ -72,7 +242,7 @@ func (a *Application) registerRoutes() {
 
 // registerRoute регистрирует RouteDefinition в Gin.
 func (a *Application) registerRoute(entry manifest.Entry, route engine.RouteDefinition) {
-	a.router.Handle(route.Method, route.Path, a.makeGinHandler(entry, route.Handler))
+	a.router.Handle(route.Method, engine.RoutePath(a.config.Module, route.Path), a.makeGinHandler(entry, route.Handler))
 }
 
 // makeGinHandler возвращает gin.HandlerFunc для конкретной page entry.
@@ -96,6 +266,7 @@ func (a *Application) newRequestContext(ctx *gin.Context, pageKey string) *engin
 	query := queryParams(ctx)
 	return &engine.RequestContext{
 		PageKey: pageKey,
+		Module:  a.config.Module,
 		Params:  requestParams(ctx, query),
 		Query:   query,
 		User:    engine.User{},
