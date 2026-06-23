@@ -287,6 +287,16 @@ func (c *RuntimeControl) SetValue(value any) {
 	c.ctx.update("controls."+c.input.Id+".value", value)
 }
 
+// SetOptions replaces the options of an existing select control.
+func (c *RuntimeSelect) SetOptions(options inputs.ComboItems) {
+	if !c.valid() {
+		return
+	}
+	c.input.Options = options
+	c.state.Options = options
+	c.ctx.update("controls."+c.input.Id+".options", options)
+}
+
 func (c *RuntimeLabel) DSL() any {
 	return c.control.DSL()
 }

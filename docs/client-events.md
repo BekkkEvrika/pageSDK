@@ -1180,7 +1180,34 @@ Common paths:
 controls.{id}.label
 controls.{id}.value
 controls.{id}.visibility
+controls.{id}.options
 ```
+
+For dependent combo boxes, the backend may replace select options and then
+reset its current value:
+
+```json
+{
+  "mutations": [
+    {
+      "type": "update",
+      "path": "controls.city.options",
+      "value": [
+        {"value": "dushanbe", "label": "Dushanbe"},
+        {"value": "khujand", "label": "Khujand"}
+      ]
+    },
+    {
+      "type": "update",
+      "path": "controls.city.value",
+      "value": ""
+    }
+  ]
+}
+```
+
+Apply these mutations in order so an old selected value is not retained after
+the option set changes.
 
 ### add
 

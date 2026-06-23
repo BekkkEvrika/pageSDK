@@ -1096,3 +1096,39 @@ func TestTableRouteUsesRequestEngineInstance(t *testing.T) {
 		t.Fatalf("bootstrap engine should not own request DSL: %#v", bootstrapTable)
 	}
 }
+
+func TestRuntimeSelectSetOptionsCreatesMutation(t *testing.T) {
+	root := &inputs.Container{
+		Fields: []inputs.Input{
+			{
+				Id:   "city",
+				Type: inputs.InputTypeSelect,
+			},
+		},
+	}
+	ctx := &RuntimeContext{formRoot: root}
+	input := &root.Fields[0]
+	control := &RuntimeSelect{RuntimeControl: RuntimeControl{
+		ctx:   ctx,
+		input: input,
+	}}
+	options := inputs.ComboItems{
+		{ID: "dushanbe", Text: "Dushanbe"},
+		{ID: "khujand", Text: "Khujand"},
+	}
+
+	control.SetOptions(options)
+
+	if !reflect.DeepEqual(input.Options, options) {
+		t.Fatalf("select options = %#v, want %#v", input.Options, options)
+	}
+	if len(ctx.Mutations) != 1 {
+		t.Fatalf("mutations len = %d, want 1", len(ctx.Mutations))
+	}
+	if ctx.Mutations[0].Path != "controls.city.options" {
+		t.Fatalf("mutation path = %q", ctx.Mutations[0].Path)
+	}
+	if !reflect.DeepEqual(ctx.Mutations[0].Value, options) {
+		t.Fatalf("mutation value = %#v, want %#v", ctx.Mutations[0].Value, options)
+	}
+}

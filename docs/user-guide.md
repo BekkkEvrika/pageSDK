@@ -489,6 +489,49 @@ p.Select("role").
 	})
 ```
 
+Runtime handler может заменить options уже существующего select:
+
+```go
+func onCountryChange(ctx *formengine.RuntimeContext) {
+	country, err := ctx.GetSelectById("country")
+	if err != nil {
+		return
+	}
+	city, err := ctx.GetSelectById("city")
+	if err != nil {
+		return
+	}
+
+	city.SetOptions(loadCities(country.Element().Value))
+	city.SetValue("")
+}
+```
+
+Frontend получит две mutations:
+
+```json
+{
+  "mutations": [
+    {
+      "type": "update",
+      "path": "controls.city.options",
+      "value": [
+        {"value": "dushanbe", "label": "Dushanbe"},
+        {"value": "khujand", "label": "Khujand"}
+      ]
+    },
+    {
+      "type": "update",
+      "path": "controls.city.value",
+      "value": ""
+    }
+  ]
+}
+```
+
+Полный runnable example зарегистрирован как `controls.combos` в
+[`cmd/pagesdk-example/main.go`](../cmd/pagesdk-example/main.go).
+
 ### 8.4 Validation
 
 ```go

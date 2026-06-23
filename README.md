@@ -22,6 +22,7 @@
 - [Lifecycle и архитектура page instances](docs/page-instances.md)
 - [Пример FormEngine](page/users_edit.go)
 - [Пример TableEngine](page/users_page.go)
+- [Пример зависимых combo boxes](cmd/pagesdk-example/main.go)
 
 ## Требования
 
@@ -269,3 +270,12 @@ go run ./cmd/pagesdk-example
 Дальнейшее чтение лучше начать с
 [полного руководства](docs/user-guide.md), а при разработке frontend-клиента —
 с [протокола событий](docs/client-events.md).
+
+В example-приложении доступна страница с combo boxes:
+
+```text
+GET /page/controls.combos
+```
+
+Она показывает статические options, initial values из query parameters и
+runtime-обновление списка городов при смене страны.
