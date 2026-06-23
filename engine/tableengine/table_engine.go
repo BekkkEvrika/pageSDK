@@ -192,6 +192,7 @@ func (t *TableEngine) Routes(pageKey string, page engine.Page) []engine.RouteDef
 			Method:  http.MethodGet,
 			Path:    "/page/" + pageKey,
 			Handler: t.renderRoute(pageKey),
+			Mode:    engine.RouteModeRender,
 		},
 	}
 	if page == nil {
@@ -206,6 +207,7 @@ func (t *TableEngine) Routes(pageKey string, page engine.Page) []engine.RouteDef
 			Method:  http.MethodPost,
 			Path:    tableEventRoutePath(pageKey, eventKey),
 			Handler: t.handleRoute(pageKey, eventKey),
+			Mode:    engine.RouteModeEvent,
 		})
 	}
 	return routes
@@ -216,12 +218,14 @@ func (t *TableEngine) Render(ctx *engine.RequestContext, page engine.Page) (*eng
 	if err := page.Init(ctx.BuildContext()); err != nil {
 		return nil, err
 	}
-	t.bindEventRoutes(ctx.PageKey, ctx.Module)
+	t.bindEventRoutes(ctx.PageKey, ctx.Module, ctx.PageInstanceID)
 
 	return &engine.RenderResult{
-		PageKey: ctx.PageKey,
-		Engine:  t.ID(),
-		DSL:     t.DSL(),
+		PageKey:     ctx.PageKey,
+		InstanceID:  ctx.PageInstanceID,
+		InstanceURL: engine.PageInstanceURL(engine.RoutePath(ctx.Module, "/page/"+ctx.PageKey+"/instance"), ctx.PageInstanceID),
+		Engine:      t.ID(),
+		DSL:         t.DSL(),
 	}, nil
 }
 
@@ -231,11 +235,13 @@ func (t *TableEngine) Handle(ctx *engine.RequestContext, page engine.Page) (*eng
 }
 
 func (t *TableEngine) executeEvent(ctx *engine.RequestContext, page engine.Page, key tableEventKey) (*engine.RuntimeResult, error) {
-	if err := page.Init(ctx.BuildContext()); err != nil {
-		return nil, err
-	}
-
 	handler := t.handlers[key]
+	if handler == nil && ctx.PageInstanceID == "" {
+		if err := page.Init(ctx.BuildContext()); err != nil {
+			return nil, err
+		}
+		handler = t.handlers[key]
+	}
 	if handler == nil {
 		return nil, fmt.Errorf("table engine: handler for table %q event %q action %q not found", key.TableID, key.Event, key.ActionID)
 	}
@@ -399,8 +405,12 @@ func (t *TableEngine) eventKeys() []tableEventKey {
 
 func (t *TableEngine) bindEventRoutes(pageKey string, module ...string) {
 	moduleName := ""
+	instanceID := ""
 	if len(module) > 0 {
 		moduleName = module[0]
+	}
+	if len(module) > 1 {
+		instanceID = module[1]
 	}
 	if pageKey == "" || len(t.handlers) == 0 {
 		t.dsl.Events = nil
@@ -411,21 +421,21 @@ func (t *TableEngine) bindEventRoutes(pageKey string, module ...string) {
 	for _, key := range t.eventKeys() {
 		switch key.Event {
 		case table.TableEventRowAction:
-			t.bindRowActionRoute(pageKey, key, moduleName)
+			t.bindRowActionRoute(pageKey, key, moduleName, instanceID)
 			continue
 		case table.TableEventToolbarAction:
-			t.bindToolbarActionRoute(pageKey, key, moduleName)
+			t.bindToolbarActionRoute(pageKey, key, moduleName, instanceID)
 			continue
 		case table.TableEventColumnAction:
-			t.bindColumnActionRoute(pageKey, key, moduleName)
+			t.bindColumnActionRoute(pageKey, key, moduleName, instanceID)
 			continue
 		case table.TableEventSelectedAction:
-			t.bindSelectedActionRoute(pageKey, key, moduleName)
+			t.bindSelectedActionRoute(pageKey, key, moduleName, instanceID)
 			continue
 		}
 		hasTableEvents = true
 		route := &table.TableEventRoute{
-			URL:    tableEventRoutePath(pageKey, key, moduleName),
+			URL:    tableEventRoutePath(pageKey, key, moduleName, instanceID),
 			Method: table.HTTPMethodPOST,
 		}
 		switch key.Event {
@@ -558,8 +568,12 @@ func mergeTableState(state *table.TableStateConfig, payload table.TableEventRequ
 
 func tableEventRoutePath(pageKey string, key tableEventKey, module ...string) string {
 	moduleName := ""
+	instanceID := ""
 	if len(module) > 0 {
 		moduleName = module[0]
+	}
+	if len(module) > 1 {
+		instanceID = module[1]
 	}
 	path := ""
 	switch key.Event {
@@ -574,7 +588,7 @@ func tableEventRoutePath(pageKey string, key tableEventKey, module ...string) st
 	default:
 		path = "/event/" + pageKey + "/table/" + key.TableID + "/" + string(key.Event)
 	}
-	return engine.RoutePath(moduleName, path)
+	return engine.PageInstanceURL(engine.RoutePath(moduleName, path), instanceID)
 }
 
 func tableEventOrder(event table.TableEventType) int {

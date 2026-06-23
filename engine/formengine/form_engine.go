@@ -330,6 +330,7 @@ func (f *FormEngine) Routes(pageKey string, page engine.Page) []engine.RouteDefi
 			Method:  http.MethodGet,
 			Path:    "/page/" + pageKey,
 			Handler: f.renderRoute(pageKey),
+			Mode:    engine.RouteModeRender,
 		},
 	}
 	f.generateEventRoutes(pageKey)
@@ -339,17 +340,20 @@ func (f *FormEngine) Routes(pageKey string, page engine.Page) []engine.RouteDefi
 			Method:  route.Method,
 			Path:    route.Path,
 			Handler: f.handleRoute(pageKey, eventKey),
+			Mode:    engine.RouteModeEvent,
 		})
 	}
 	routes = append(routes, engine.RouteDefinition{
 		Method:  http.MethodPost,
 		Path:    "/event/" + pageKey + "/dialog/:dialog",
 		Handler: f.handleDialogRoute(pageKey),
+		Mode:    engine.RouteModeEvent,
 	})
 	routes = append(routes, engine.RouteDefinition{
 		Method:  http.MethodPost,
 		Path:    "/event/" + pageKey + "/callback/:callback",
 		Handler: f.handleCallbackRoute(pageKey),
+		Mode:    engine.RouteModeEvent,
 	})
 	return routes
 }
@@ -359,19 +363,29 @@ func (f *FormEngine) Render(ctx *engine.RequestContext, page engine.Page) (*engi
 	if err := page.Init(ctx.BuildContext()); err != nil {
 		return nil, err
 	}
-	f.bindFormActionRoutes(ctx.Module, ctx.PageKey)
+	f.bindFormActionRoutes(ctx.Module, ctx.PageKey, ctx.PageInstanceID)
 
 	return &engine.RenderResult{
-		PageKey: ctx.PageKey,
-		Engine:  f.ID(),
-		DSL:     f.DSL(),
+		PageKey:     ctx.PageKey,
+		InstanceID:  ctx.PageInstanceID,
+		InstanceURL: engine.PageInstanceURL(engine.RoutePath(ctx.Module, "/page/"+ctx.PageKey+"/instance"), ctx.PageInstanceID),
+		Engine:      f.ID(),
+		DSL:         f.DSL(),
 	}, nil
 }
 
 // Handle обрабатывает runtime events формы.
 func (f *FormEngine) Handle(ctx *engine.RequestContext, page engine.Page) (*engine.RuntimeResult, error) {
-	if err := page.Init(ctx.BuildContext()); err != nil {
-		return nil, err
+	key := formEventKey{
+		Component: ctx.Params["component"],
+		Action:    ctx.Params["action"],
+	}
+	handler := f.handler(key)
+	if handler == nil && ctx.PageInstanceID == "" {
+		if err := page.Init(ctx.BuildContext()); err != nil {
+			return nil, err
+		}
+		handler = f.handler(key)
 	}
 
 	state, err := formState(ctx)
@@ -384,10 +398,6 @@ func (f *FormEngine) Handle(ctx *engine.RequestContext, page engine.Page) (*engi
 	runtimeCtx.Sender = state.Sender
 	runtimeCtx.BindFormTree(&f.root)
 	runtimeCtx.Params["form.actionId"] = state.ActionID
-	handler := f.handler(formEventKey{
-		Component: ctx.Params["component"],
-		Action:    ctx.Params["action"],
-	})
 	if handler == nil {
 		return nil, fmt.Errorf("form engine: handler for %q/%q not found", ctx.Params["component"], ctx.Params["action"])
 	}
@@ -521,15 +531,19 @@ func (f *FormEngine) generateEventRoutes(pageKey string) {
 
 func (f *FormEngine) upsertGeneratedFormAction(component, action string, trigger inputs.FormActionTrigger, pageKey string, module ...string) {
 	moduleName := ""
+	instanceID := ""
 	if len(module) > 0 {
 		moduleName = module[0]
+	}
+	if len(module) > 1 {
+		instanceID = module[1]
 	}
 	generated := inputs.FormAction{
 		ID:      action,
 		Trigger: trigger,
 		Config: &inputs.FormActionConfig{
 			Type:   formActionType(trigger),
-			URL:    eventRoutePath(moduleName, pageKey, component, action),
+			URL:    engine.PageInstanceURL(eventRoutePath(moduleName, pageKey, component, action), instanceID),
 			Method: http.MethodPost,
 		},
 	}
@@ -551,7 +565,7 @@ func (f *FormEngine) upsertGeneratedFormAction(component, action string, trigger
 	f.formActions = actions
 }
 
-func (f *FormEngine) bindFormActionRoutes(module, pageKey string) {
+func (f *FormEngine) bindFormActionRoutes(module, pageKey, instanceID string) {
 	if pageKey == "" {
 		return
 	}
@@ -560,7 +574,7 @@ func (f *FormEngine) bindFormActionRoutes(module, pageKey string) {
 		if !ok {
 			continue
 		}
-		f.upsertGeneratedFormAction(key.Component, key.Action, trigger, pageKey, module)
+		f.upsertGeneratedFormAction(key.Component, key.Action, trigger, pageKey, module, instanceID)
 	}
 }
 

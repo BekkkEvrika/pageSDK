@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/BekkkEvrika/pageSDK/access"
 	"github.com/BekkkEvrika/pageSDK/engine"
@@ -29,6 +30,7 @@ type Application struct {
 	router      *gin.Engine
 	config      Config
 	syncer      access.AccessSyncProvider
+	instances   *pageInstanceManager
 	initialized bool
 }
 
@@ -39,6 +41,8 @@ type Config struct {
 	ClientID           string
 	ClientSecret       string
 	AccessManifestPath string
+	PageInstanceTTL    time.Duration
+	MaxPageInstances   int
 }
 
 // New создаёт новый Application.
@@ -53,6 +57,7 @@ func New(config ...Config) *Application {
 	if a.config.AccessManifestPath == "" {
 		a.config.AccessManifestPath = "sfp.access.yaml"
 	}
+	a.instances = newPageInstanceManager(a.config.PageInstanceTTL, a.config.MaxPageInstances)
 	a.syncer = access.UnsupportedKeycloakProvider{Config: a.accessConfig()}
 	return a
 }
@@ -222,7 +227,7 @@ func printDiffSection(output io.Writer, title string, values []string) {
 }
 
 // registerRoutes итерирует manifest и получает route metadata из sample Engine.
-// Runtime request использует свежий Engine из новой Page.
+// Render creates a Page instance; events reuse that stored Page.
 func (a *Application) registerRoutes() {
 	a.router.Use(logging.LogMiddleware)
 	for _, entry := range a.manifest.All() {
@@ -237,27 +242,89 @@ func (a *Application) registerRoutes() {
 		for _, route := range eng.Routes(entry.Key, samplePage) {
 			a.registerRoute(entry, route)
 		}
+		a.router.DELETE(
+			engine.RoutePath(a.config.Module, "/page/"+entry.Key+"/instance"),
+			a.deletePageInstance(entry.Key),
+		)
 	}
 }
 
 // registerRoute регистрирует RouteDefinition в Gin.
 func (a *Application) registerRoute(entry manifest.Entry, route engine.RouteDefinition) {
-	a.router.Handle(route.Method, engine.RoutePath(a.config.Module, route.Path), a.makeGinHandler(entry, route.Handler))
+	a.router.Handle(route.Method, engine.RoutePath(a.config.Module, route.Path), a.makeGinHandler(entry, route))
 }
 
-// makeGinHandler возвращает gin.HandlerFunc для конкретной page entry.
-// На каждый request: создаёт новый Page, вызывает runtime handler, уничтожает.
-func (a *Application) makeGinHandler(entry manifest.Entry, handler engine.RouteHandler) gin.HandlerFunc {
+// makeGinHandler creates a Page on render and reuses the stored instance for
+// subsequent events identified by the pageInstanceId query parameter.
+func (a *Application) makeGinHandler(entry manifest.Entry, route engine.RouteDefinition) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		page := entry.Factory()
-		result, err := handler(a.newRequestContext(ctx, entry.Key), page)
+		requestContext := a.newRequestContext(ctx, entry.Key)
+		var (
+			page     engine.Page
+			instance *pageInstance
+		)
+
+		switch route.Mode {
+		case engine.RouteModeRender:
+			page = entry.Factory()
+			instanceID, err := a.instances.NewID()
+			if err != nil {
+				ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			requestContext.PageInstanceID = instanceID
+		case engine.RouteModeEvent:
+			instanceID := requestContext.Query[engine.PageInstanceParam]
+			if instanceID == "" {
+				ctx.JSON(http.StatusBadRequest, gin.H{"error": engine.PageInstanceParam + " is required"})
+				return
+			}
+			requestContext.PageInstanceID = instanceID
+			var err error
+			instance, err = a.instances.Acquire(instanceID, entry.Key)
+			if err != nil {
+				status := http.StatusNotFound
+				if errors.Is(err, ErrPageInstanceExpired) {
+					status = http.StatusGone
+				}
+				ctx.JSON(status, gin.H{"error": err.Error()})
+				return
+			}
+			defer a.instances.Release(instance)
+			page = instance.Page
+		default:
+			page = entry.Factory()
+		}
+
+		result, err := route.Handler(requestContext, page)
 		if err != nil {
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		if route.Mode == engine.RouteModeRender {
+			if err := a.instances.Add(requestContext.PageInstanceID, entry.Key, page); err != nil {
+				ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+				return
+			}
+		}
 		if result != nil && !ctx.Writer.Written() {
 			ctx.JSON(http.StatusOK, result)
 		}
+	}
+}
+
+func (a *Application) deletePageInstance(pageKey string) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		instanceID := ctx.Query(engine.PageInstanceParam)
+		if instanceID == "" {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": engine.PageInstanceParam + " is required"})
+			return
+		}
+		if !a.instances.Delete(instanceID, pageKey) {
+			ctx.JSON(http.StatusNotFound, gin.H{"error": ErrPageInstanceNotFound.Error()})
+			return
+		}
+		ctx.Status(http.StatusNoContent)
 	}
 }
 

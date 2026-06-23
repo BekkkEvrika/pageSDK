@@ -19,6 +19,7 @@
 
 - [Полное руководство пользователя](docs/user-guide.md)
 - [Протокол frontend-событий](docs/client-events.md)
+- [Lifecycle и архитектура page instances](docs/page-instances.md)
 - [Пример FormEngine](page/users_edit.go)
 - [Пример TableEngine](page/users_page.go)
 
@@ -136,6 +137,8 @@ Render response содержит тип движка и DSL:
 ```json
 {
   "pageKey": "users.edit",
+  "instanceId": "generated-instance-id",
+  "instanceUrl": "/clients/page/users.edit/instance?pageInstanceId=generated-instance-id",
   "engine": "form",
   "dsl": {
     "containers": [],
@@ -146,6 +149,13 @@ Render response содержит тип движка и DSL:
 
 Frontend берет URL события из `dsl.actions`, отправляет состояние формы и
 получает явные изменения:
+
+Event URL сохраняет стабильный route path для access control и содержит
+`pageInstanceId` только как query-параметр:
+
+```text
+/clients/event/users.edit/button/save?pageInstanceId=generated-instance-id
+```
 
 ```json
 {
@@ -215,15 +225,22 @@ func onRefresh(ctx *tableengine.TableRuntimeContext) {
 Application
   └── Manifest
       └── page key -> PageFactory
-                       └── новая Page на каждый запрос
-                           └── FormEngine или TableEngine
+                       └── новая Page на каждый render
+                           ├── Init(request context)
+                           └── in-memory instance
+                               └── events по pageInstanceId
 ```
 
 Ключевые правила:
 
-- `Page` и `Engine` создаются заново на каждый HTTP-запрос;
-- `Page.Init` декларативно строит DSL и регистрирует handlers;
-- runtime-состояние нельзя хранить в полях `Page` между запросами;
+- `Page` и `Engine` создаются заново на каждый render-запрос;
+- `Page.Init` вызывается при render, строит DSL и регистрирует handlers;
+- события используют сохранённый in-memory instance и не вызывают `Init`
+  повторно;
+- instance удаляется после периода бездействия (по умолчанию 30 минут) или
+  через `DELETE /page/{pageKey}/instance?pageInstanceId=...`;
+- request-specific DSL и handlers сохраняются внутри Page instance;
+- текущие browser values, selection и navigation state остаются на frontend;
 - frontend не должен самостоятельно конструировать event URL;
 - все event URL публикуются в DSL;
 - изменения UI возвращаются явно через `mutations`, `navigation` и `dialogs`;

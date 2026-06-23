@@ -33,10 +33,14 @@ func bindDialogHandler(pageKey string, dialog engine.Dialog, handler DialogHandl
 	dialogCallbackHandlers.Store(id, handler)
 
 	moduleName := ""
+	instanceID := ""
 	if len(module) > 0 {
 		moduleName = module[0]
 	}
-	url := dialogEventRoutePath(moduleName, pageKey, id)
+	if len(module) > 1 {
+		instanceID = module[1]
+	}
+	url := engine.PageInstanceURL(dialogEventRoutePath(moduleName, pageKey, id), instanceID)
 	for i := range dialog.Actions {
 		dialog.Actions[i].URL = url
 		dialog.Actions[i].Method = http.MethodPost

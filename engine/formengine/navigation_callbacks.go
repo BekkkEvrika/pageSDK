@@ -16,23 +16,29 @@ var navigationCallbackHandlers sync.Map
 
 func registerNavigationCallback(pageKey string, handler NavigationCallback, module ...string) string {
 	name := navigationCallbackName(handler)
-	key := navigationCallbackKey(pageKey, name)
+	instanceID := ""
+	if len(module) > 1 {
+		instanceID = module[1]
+	}
+	key := navigationCallbackKey(pageKey, instanceID, name)
 	navigationCallbackHandlers.Store(key, handler)
 	moduleName := ""
 	if len(module) > 0 {
 		moduleName = module[0]
 	}
-	return navigationCallbackRoutePath(moduleName, pageKey, name)
+	return engine.PageInstanceURL(navigationCallbackRoutePath(moduleName, pageKey, name), instanceID)
 }
 
 // HandleCallback dispatches a navigation callback event registered by OpenDialog/OpenTab/OpenPage.
 func (f *FormEngine) HandleCallback(ctx *engine.RequestContext, page engine.Page) (*engine.RuntimeResult, error) {
-	if err := page.Init(ctx.BuildContext()); err != nil {
-		return nil, err
+	if ctx.PageInstanceID == "" {
+		if err := page.Init(ctx.BuildContext()); err != nil {
+			return nil, err
+		}
 	}
 
 	name := ctx.Params["callback"]
-	handlerValue, ok := navigationCallbackHandlers.Load(navigationCallbackKey(ctx.PageKey, name))
+	handlerValue, ok := navigationCallbackHandlers.Load(navigationCallbackKey(ctx.PageKey, ctx.PageInstanceID, name))
 	if !ok {
 		return nil, fmt.Errorf("form engine: navigation callback %q not found", name)
 	}
@@ -135,8 +141,16 @@ func toSnakeIdentifier(value string) string {
 	return result
 }
 
-func navigationCallbackKey(pageKey, name string) string {
-	return pageKey + "/" + name
+func navigationCallbackKey(pageKey string, parts ...string) string {
+	instanceID := ""
+	name := ""
+	switch len(parts) {
+	case 1:
+		name = parts[0]
+	case 2:
+		instanceID, name = parts[0], parts[1]
+	}
+	return pageKey + "/" + instanceID + "/" + name
 }
 
 func navigationCallbackRoutePath(args ...string) string {

@@ -1,10 +1,10 @@
 package engine
 
 // Page — интерфейс, который должна реализовывать каждая page.
-// Page stateless: создаётся на каждый request, уничтожается после ответа.
+// A Page is created for a render request and retained in memory for its events.
 type Page interface {
-	// Init вызывается один раз при каждом request.
-	// Здесь происходит DSL-сборка, загрузка данных, настройка полей.
+	// Init is called once when a page instance is rendered.
+	// It builds request-specific DSL and registers handlers for that instance.
 	Init(ctx *BuildContext) error
 
 	// GetEngine возвращает движок, к которому привязана page.
@@ -12,6 +12,5 @@ type Page interface {
 	GetEngine() Engine
 }
 
-// PageFactory — функция-фабрика, создающая новый экземпляр Page.
-// Регистрируется в Manifest. Вызывается на каждый request.
+// PageFactory creates a new Page for each render request.
 type PageFactory func() Page

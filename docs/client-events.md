@@ -5,20 +5,27 @@ This document describes how a frontend client should work with pageSDK event rou
 For installation, backend page development, lifecycle and production guidance,
 see the [pageSDK user guide](user-guide.md).
 
+For the internal instance-manager design and migration rationale, see
+[Page instances](page-instances.md).
+
 ## Core idea
 
-The backend uses static, deterministic event routes generated during bootstrap.
+The backend uses static, deterministic event route paths generated during
+bootstrap. Each rendered page receives its own in-memory instance.
 
-The client must not invent event routes. It should use the routes exposed in the rendered DSL/action metadata.
+The client must not invent event routes. It should use the complete URLs
+exposed in the rendered DSL/action metadata. These URLs keep the static path
+and add the current instance only as a query parameter.
 
 Example routes:
 
 ```text
 GET  /page/users.edit
-POST /event/users.edit/button/save
-POST /event/users.edit/text/name
-POST /event/users.edit/dialog/:dialog
-POST /event/users.edit/callback/:callback
+POST /event/users.edit/button/save?pageInstanceId={instanceId}
+POST /event/users.edit/text/name?pageInstanceId={instanceId}
+POST /event/users.edit/dialog/:dialog?pageInstanceId={instanceId}
+POST /event/users.edit/callback/:callback?pageInstanceId={instanceId}
+DELETE /page/users.edit/instance?pageInstanceId={instanceId}
 ```
 
 Application does not know event structure. Concrete Engine defines:
@@ -48,6 +55,8 @@ Response:
 ```json
 {
   "pageKey": "users.edit",
+  "instanceId": "Hq8W...generated-id",
+  "instanceUrl": "/page/users.edit/instance?pageInstanceId=Hq8W...generated-id",
   "engine": "form",
   "dsl": {
     "containers": [
@@ -70,7 +79,7 @@ Response:
         "trigger": "click",
         "config": {
           "type": "apiCall",
-          "url": "/event/users.edit/button/save",
+          "url": "/event/users.edit/button/save?pageInstanceId=Hq8W...generated-id",
           "method": "POST"
         }
       }
@@ -86,6 +95,41 @@ The client renders the `dsl.containers` tree. Containers may contain:
 
 The real UI structure is hierarchical. Field `id` values must be treated as stable node ids.
 
+`instanceId` identifies this exact render of the page. A second render of the
+same `pageKey`, including another browser tab or another user, receives a
+different instance.
+
+The backend keeps the rendered Page object, its request-specific DSL, and its
+registered handlers in process memory. Event requests use that stored object;
+`Page.Init` is not called again.
+
+The client should store together:
+
+- `pageKey`
+- `instanceId`
+- `instanceUrl`
+- rendered DSL
+- navigation presentation state
+
+Do not copy an event URL from one rendered page to another instance.
+
+## Instance query parameter
+
+`pageInstanceId` is always a query parameter. It is deliberately not part of
+the route path so access-control resources remain stable:
+
+```text
+Stable access path:
+/event/users.edit/button/save
+
+Concrete runtime URL:
+/event/users.edit/button/save?pageInstanceId=Hq8W...generated-id
+```
+
+The client should treat the entire backend-provided URL as opaque. In
+particular, it must preserve its query string when adding headers, body, base
+URL, retry logic, or request interceptors.
+
 ## Event route discovery
 
 For form pages, event endpoints are defined by action metadata.
@@ -97,7 +141,7 @@ For a button click:
   "id": "save",
   "trigger": "click",
   "config": {
-    "url": "/event/users.edit/button/save",
+    "url": "/event/users.edit/button/save?pageInstanceId=Hq8W...generated-id",
     "method": "POST"
   }
 }
@@ -134,15 +178,15 @@ Example:
     },
     "events": {
       "reload": {
-        "url": "/event/users.list/table/users/reload",
+        "url": "/event/users.list/table/users/reload?pageInstanceId=Hq8W...generated-id",
         "method": "POST"
       },
       "filter": {
-        "url": "/event/users.list/table/users/filter",
+        "url": "/event/users.list/table/users/filter?pageInstanceId=Hq8W...generated-id",
         "method": "POST"
       },
       "pagination": {
-        "url": "/event/users.list/table/users/pagination",
+        "url": "/event/users.list/table/users/pagination?pageInstanceId=Hq8W...generated-id",
         "method": "POST"
       }
     }
@@ -248,7 +292,7 @@ exact backend route:
         "label": "Refresh",
         "icon": "refresh",
         "hotkey": "F5",
-        "url": "/event/users.list/table/users/toolbar/refresh",
+        "url": "/event/users.list/table/users/toolbar/refresh?pageInstanceId=Hq8W...generated-id",
         "method": "POST"
       }
     ]
@@ -259,8 +303,8 @@ exact backend route:
 Every toolbar action has its own static route:
 
 ```text
-POST /event/users.list/table/users/toolbar/refresh
-POST /event/users.list/table/users/toolbar/export
+POST /event/users.list/table/users/toolbar/refresh?pageInstanceId={instanceId}
+POST /event/users.list/table/users/toolbar/export?pageInstanceId={instanceId}
 ```
 
 The frontend may call the action URL with an empty body. If it sends a body,
@@ -297,7 +341,7 @@ p.Table("users").Columns(
     {
       "id": "normalize_names",
       "label": "Normalize Names",
-      "url": "/event/users.list/table/users/column/name/normalize_names",
+      "url": "/event/users.list/table/users/column/name/normalize_names?pageInstanceId=Hq8W...generated-id",
       "method": "POST"
     }
   ]
@@ -319,7 +363,7 @@ type TableColumnActionRequest = {
 ```
 
 ```http
-POST /event/users.list/table/users/column/name/normalize_names
+POST /event/users.list/table/users/column/name/normalize_names?pageInstanceId={instanceId}
 Content-Type: application/json
 ```
 
@@ -347,7 +391,7 @@ static route:
   "id": "delete_selected",
   "label": "Delete Selected",
   "hotkey": "Delete",
-  "url": "/event/users.list/table/users/selected/delete_selected",
+  "url": "/event/users.list/table/users/selected/delete_selected?pageInstanceId=Hq8W...generated-id",
   "method": "POST"
 }
 ```
@@ -361,7 +405,7 @@ type TableSelectedActionRequest = {
 ```
 
 ```http
-POST /event/users.list/table/users/selected/delete_selected
+POST /event/users.list/table/users/selected/delete_selected?pageInstanceId={instanceId}
 Content-Type: application/json
 ```
 
@@ -469,7 +513,7 @@ A reload should send the current page and active filters so the backend reloads
 the same table view:
 
 ```http
-POST /event/users.list/table/users/reload
+POST /event/users.list/table/users/reload?pageInstanceId={instanceId}
 Content-Type: application/json
 ```
 
@@ -496,7 +540,7 @@ Send the complete active filter list and reset `pageIndex` to `0`. An empty
 array means that all filters were cleared.
 
 ```http
-POST /event/users.list/table/users/filter
+POST /event/users.list/table/users/filter?pageInstanceId={instanceId}
 Content-Type: application/json
 ```
 
@@ -529,7 +573,7 @@ Filters must also be sent during pagination; otherwise the backend cannot know
 that the new page belongs to a filtered result set.
 
 ```http
-POST /event/users.list/table/users/pagination
+POST /event/users.list/table/users/pagination?pageInstanceId={instanceId}
 Content-Type: application/json
 ```
 
@@ -623,7 +667,7 @@ and HTTP method:
         "label": "Edit",
         "icon": "pencil",
         "variant": "secondary",
-        "url": "/event/users.list/table/users/row/edit",
+        "url": "/event/users.list/table/users/row/edit?pageInstanceId=Hq8W...generated-id",
         "method": "POST"
       }
     ]
@@ -637,9 +681,9 @@ row action URL manually.
 Every row action is registered as a separate static backend route:
 
 ```text
-POST /event/users.list/table/users/row/edit
-POST /event/users.list/table/users/row/delete
-POST /event/users.list/table/users/row/archive
+POST /event/users.list/table/users/row/edit?pageInstanceId={instanceId}
+POST /event/users.list/table/users/row/delete?pageInstanceId={instanceId}
+POST /event/users.list/table/users/row/archive?pageInstanceId={instanceId}
 ```
 
 There is no shared wildcard row-action route and no action dispatcher selected
@@ -673,7 +717,7 @@ Example: the user changed the `name`, `enabled`, and `quantity` inputs before
 clicking the `edit` row action:
 
 ```http
-POST /event/users.list/table/users/row/edit
+POST /event/users.list/table/users/row/edit?pageInstanceId={instanceId}
 Content-Type: application/json
 ```
 
@@ -841,7 +885,7 @@ Legacy `fields` map payload is still accepted as a fallback, but frontend should
 For button click:
 
 ```http
-POST /event/users.edit/button/save
+POST /event/users.edit/button/save?pageInstanceId={instanceId}
 Content-Type: application/json
 ```
 
@@ -884,7 +928,7 @@ Content-Type: application/json
 For text change:
 
 ```http
-POST /event/users.edit/text/name
+POST /event/users.edit/text/name?pageInstanceId={instanceId}
 Content-Type: application/json
 ```
 
@@ -942,7 +986,7 @@ Event response contains explicit patch mutations, navigation actions, and client
       "extra": {
         "group_id": 10
       },
-      "callback": "/event/users.edit/callback/on_user_selected"
+      "callback": "/event/users.edit/callback/on_user_selected?pageInstanceId=Hq8W...generated-id"
     }
   ],
   "dialogs": [
@@ -1047,13 +1091,13 @@ Dialogs that require backend handling include `url` and `method` on each action:
     {
       "name": "Yes",
       "value": "yes",
-      "url": "/event/users.edit/dialog/dialog-1",
+      "url": "/event/users.edit/dialog/dialog-1?pageInstanceId=Hq8W...generated-id",
       "method": "POST"
     },
     {
       "name": "No",
       "value": "no",
-      "url": "/event/users.edit/dialog/dialog-1",
+      "url": "/event/users.edit/dialog/dialog-1?pageInstanceId=Hq8W...generated-id",
       "method": "POST"
     }
   ]
@@ -1063,7 +1107,7 @@ Dialogs that require backend handling include `url` and `method` on each action:
 When the user clicks a dialog action with `url`, the frontend sends the clicked action value to that exact URL:
 
 ```http
-POST /event/users.edit/dialog/dialog-1
+POST /event/users.edit/dialog/dialog-1?pageInstanceId={instanceId}
 Content-Type: application/json
 
 {
@@ -1076,7 +1120,7 @@ The response is a normal `RuntimeResult`, so the frontend should process `mutati
 Do not construct dialog callback URLs on the frontend. The route pattern is universal:
 
 ```text
-POST /event/{pageKey}/dialog/:dialog
+POST /event/{pageKey}/dialog/:dialog?pageInstanceId={instanceId}
 ```
 
 But the concrete `:dialog` id is runtime-generated by the backend and must be read from `action.url`.
@@ -1203,7 +1247,7 @@ Examples:
   "extra": {
     "group_id": 10
   },
-  "callback": "/event/users.edit/callback/on_user_selected"
+  "callback": "/event/users.edit/callback/on_user_selected?pageInstanceId=Hq8W...generated-id"
 }
 ```
 
@@ -1248,7 +1292,7 @@ The backend exposes these values to `Page.Init` through `BuildContext.Params`.
 For `close` with `result`, the frontend closes the current dialog/tab/page. If the closed page was opened with a `callback` route, the frontend calls that exact route and sends result data:
 
 ```http
-POST /event/users.edit/callback/on_user_selected
+POST /event/users.edit/callback/on_user_selected?pageInstanceId={parentInstanceId}
 Content-Type: application/json
 
 {
@@ -1263,12 +1307,65 @@ The response from callback route is a normal `RuntimeResult`, so process `mutati
 Do not construct navigation callback URLs on the frontend. The route pattern is universal:
 
 ```text
-POST /event/{pageKey}/callback/:callback
+POST /event/{pageKey}/callback/:callback?pageInstanceId={parentInstanceId}
 ```
 
 But the concrete `callback` URL is generated by the backend and must be read from `NavigationAction.callback`.
 
 Backend does not store navigation stack. The frontend owns opened pages, callback routes, and extra/result params.
+
+## Closing a page instance
+
+When a rendered page is permanently closed, the client should call the exact
+`instanceUrl` returned by its render response:
+
+```http
+DELETE /page/users.edit/instance?pageInstanceId=Hq8W...generated-id
+```
+
+Successful deletion returns:
+
+```http
+HTTP/1.1 204 No Content
+```
+
+Closing a child dialog/tab/page does not imply that the parent instance should
+be deleted. The client should delete only the instance whose visual page is
+being discarded.
+
+If the browser crashes, loses connectivity, or never sends `DELETE`, the
+backend removes the instance after its idle TTL. Cleanup is lazy, so expired
+objects are removed during later instance-manager operations rather than by a
+periodic client-visible timer.
+
+After deletion or expiration, all event, dialog, and navigation callback URLs
+for that instance are invalid. The client must render the page again instead
+of retrying with the old `pageInstanceId`.
+
+## Instance-related HTTP errors
+
+The built-in application uses these statuses:
+
+| Status | Meaning | Client action |
+|---|---|---|
+| `400` | `pageInstanceId` query parameter is missing | Treat the URL construction/request interceptor as broken; use the exact backend URL |
+| `404` | Instance does not exist, was closed, belongs to another page key, or was lost after process restart | Discard local instance data and render again |
+| `410` | Instance idle TTL expired | Render again |
+| `503` | Backend reached `MaxPageInstances` while rendering | Show a temporary failure and retry render according to application policy |
+| `500` | Page initialization or event handler failed | Preserve UI state and show an application error |
+
+Do not automatically replay a mutation-producing event after `404` or `410`.
+The operation may be non-idempotent, and a newly rendered instance has a
+different request-specific DSL.
+
+## Concurrency
+
+Events for one page instance are serialized by the backend. Events for
+different instances may execute concurrently.
+
+The frontend should still prevent accidental duplicate submits and should not
+assume that responses from different page instances are globally ordered.
+Apply a response only to the instance whose URL produced it.
 
 ## Client responsibilities
 
@@ -1276,8 +1373,11 @@ The client must:
 
 - render container hierarchy recursively
 - preserve stable node ids
+- keep `instanceId` and `instanceUrl` with each rendered page
+- preserve `pageInstanceId` in every backend-provided event/callback/dialog URL
 - call only backend-provided event URLs
 - call only backend-provided navigation callback URLs
+- call `instanceUrl` when permanently closing a rendered page
 - send form state payload for form events
 - apply mutations in order
 - keep navigation state separately from UI mutations
@@ -1290,14 +1390,25 @@ The client must:
 The backend guarantees:
 
 - event routes are static after startup
+- every successful render receives a cryptographically random instance id
+- event URLs keep static route paths and carry instance identity only in query
+- events use the Page object initialized by that render
+- `Page.Init` is not called during instance events
+- events for one instance are serialized
 - routes are deterministic for a given manifest/page implementation
 - navigation callback route pattern is registered once per form page as a universal handler
 - handlers are registered inside Engine, not Page
 - event handlers can mutate only existing DSL controls through runtime getters
 - runtime controls cannot register new event handlers
-- Page and Engine are recreated per request
+- Page and Engine are created per render and retained in process memory until
+  close or expiration
 - no diff engine is used
 - all UI changes are explicit mutations/navigation/dialog actions
+
+The built-in backend does not currently bind an instance to an authenticated
+owner by itself because its default transport leaves `User` empty. An
+authentication integration must prevent one user from obtaining and reusing
+another user's instance URL.
 
 ## Important errors
 
