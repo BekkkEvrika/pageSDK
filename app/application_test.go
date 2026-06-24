@@ -11,12 +11,154 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BekkkEvrika/pageSDK/access"
+	"github.com/BekkkEvrika/pageSDK/authentication"
 	"github.com/BekkkEvrika/pageSDK/engine"
 	"github.com/BekkkEvrika/pageSDK/engine/formengine"
 )
 
 type cliPage struct {
 	*formengine.FormEngine
+}
+
+func TestPageAccessDeniedBeforeInit(t *testing.T) {
+	initCalls := 0
+	authenticator := authentication.AuthenticatorFunc(func(_ context.Context, token string) (authentication.Principal, error) {
+		return authentication.Principal{
+			ID:   token,
+			User: engine.User{"sub": token},
+		}, nil
+	})
+	a := New(Config{
+		Authenticator: authenticator,
+		AccessAuthorizer: access.StaticAuthorizer{
+			Groups: map[string][]string{"allowed-user": {"page.secure.page"}},
+		},
+	})
+	a.Manifest().Register("secure.page", func() engine.Page {
+		return &instanceLifecyclePage{
+			FormEngine: &formengine.FormEngine{},
+			initCalls:  &initCalls,
+		}
+	})
+	a.registerRoutes()
+	beforeDenied := initCalls
+
+	deniedRequest := httptest.NewRequest(http.MethodGet, "/page/secure.page", nil)
+	deniedRequest.Header.Set("Authorization", "Bearer denied-user")
+	deniedResponse := httptest.NewRecorder()
+	a.router.ServeHTTP(deniedResponse, deniedRequest)
+	if deniedResponse.Code != http.StatusForbidden {
+		t.Fatalf("denied render returned %d: %s", deniedResponse.Code, deniedResponse.Body.String())
+	}
+	if initCalls != beforeDenied {
+		t.Fatalf("Init was called for denied user")
+	}
+
+	allowedRequest := httptest.NewRequest(http.MethodGet, "/page/secure.page", nil)
+	allowedRequest.Header.Set("Authorization", "Bearer allowed-user")
+	allowedResponse := httptest.NewRecorder()
+	a.router.ServeHTTP(allowedResponse, allowedRequest)
+	if allowedResponse.Code != http.StatusOK {
+		t.Fatalf("allowed render returned %d: %s", allowedResponse.Code, allowedResponse.Body.String())
+	}
+}
+
+func TestRPTPermissionsAuthorizePage(t *testing.T) {
+	authenticator := authentication.AuthenticatorFunc(func(_ context.Context, token string) (authentication.Principal, error) {
+		user := engine.User{
+			"sub": token,
+			"authorization": map[string]any{
+				"permissions": []any{
+					map[string]any{"resource_set_name": "page.secure.page"},
+				},
+			},
+		}
+		if token == "denied-user" {
+			user["authorization"] = map[string]any{"permissions": []any{}}
+		}
+		return authentication.Principal{ID: token, User: user}, nil
+	})
+	a := New(Config{Authenticator: authenticator})
+	a.UseRPTAccessAuthorizer()
+	a.Manifest().Register("secure.page", func() engine.Page {
+		return &authenticatedPage{FormEngine: &formengine.FormEngine{}}
+	})
+	a.registerRoutes()
+
+	deniedRequest := httptest.NewRequest(http.MethodGet, "/page/secure.page", nil)
+	deniedRequest.Header.Set("Authorization", "Bearer denied-user")
+	deniedResponse := httptest.NewRecorder()
+	a.router.ServeHTTP(deniedResponse, deniedRequest)
+	if deniedResponse.Code != http.StatusForbidden {
+		t.Fatalf("denied RPT render returned %d: %s", deniedResponse.Code, deniedResponse.Body.String())
+	}
+
+	allowedRequest := httptest.NewRequest(http.MethodGet, "/page/secure.page", nil)
+	allowedRequest.Header.Set("Authorization", "Bearer allowed-user")
+	allowedResponse := httptest.NewRecorder()
+	a.router.ServeHTTP(allowedResponse, allowedRequest)
+	if allowedResponse.Code != http.StatusOK {
+		t.Fatalf("allowed RPT render returned %d: %s", allowedResponse.Code, allowedResponse.Body.String())
+	}
+}
+
+type authenticatedPage struct {
+	*formengine.FormEngine
+}
+
+func (p *authenticatedPage) Init(ctx *engine.BuildContext) error {
+	p.Text("subject").DefaultValue(ctx.User["sub"])
+	p.Button("save").OnClick(func(*formengine.RuntimeContext) {})
+	return nil
+}
+
+func TestAuthenticationClaimsAndPageInstanceOwnership(t *testing.T) {
+	authenticator := authentication.AuthenticatorFunc(func(_ context.Context, token string) (authentication.Principal, error) {
+		return authentication.Principal{
+			ID:   "issuer|" + token,
+			User: engine.User{"iss": "issuer", "sub": token},
+		}, nil
+	})
+	a := New(Config{Authenticator: authenticator})
+	a.Manifest().Register("secure.page", func() engine.Page {
+		return &authenticatedPage{FormEngine: &formengine.FormEngine{}}
+	})
+	a.registerRoutes()
+
+	unauthenticated := httptest.NewRecorder()
+	a.router.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "/page/secure.page", nil))
+	if unauthenticated.Code != http.StatusUnauthorized {
+		t.Fatalf("request without JWT returned %d", unauthenticated.Code)
+	}
+
+	renderRequest := httptest.NewRequest(http.MethodGet, "/page/secure.page", nil)
+	renderRequest.Header.Set("Authorization", "Bearer user-1")
+	renderResponse := httptest.NewRecorder()
+	a.router.ServeHTTP(renderResponse, renderRequest)
+	if renderResponse.Code != http.StatusOK {
+		t.Fatalf("authenticated render returned %d: %s", renderResponse.Code, renderResponse.Body.String())
+	}
+	if !strings.Contains(renderResponse.Body.String(), `"defaultValue":"user-1"`) {
+		t.Fatalf("JWT claims did not reach Init: %s", renderResponse.Body.String())
+	}
+	rendered := decodeRenderedInstance(t, renderResponse)
+
+	foreignEvent := httptest.NewRequest(http.MethodPost, rendered.EventURL, strings.NewReader(`{}`))
+	foreignEvent.Header.Set("Authorization", "Bearer user-2")
+	foreignResponse := httptest.NewRecorder()
+	a.router.ServeHTTP(foreignResponse, foreignEvent)
+	if foreignResponse.Code != http.StatusNotFound {
+		t.Fatalf("foreign owner event returned %d: %s", foreignResponse.Code, foreignResponse.Body.String())
+	}
+
+	ownerEvent := httptest.NewRequest(http.MethodPost, rendered.EventURL, strings.NewReader(`{}`))
+	ownerEvent.Header.Set("Authorization", "Bearer user-1")
+	ownerResponse := httptest.NewRecorder()
+	a.router.ServeHTTP(ownerResponse, ownerEvent)
+	if ownerResponse.Code != http.StatusOK {
+		t.Fatalf("owner event returned %d: %s", ownerResponse.Code, ownerResponse.Body.String())
+	}
 }
 
 func (p *cliPage) Init(_ *engine.BuildContext) error {
@@ -151,6 +293,11 @@ func renderInstance(t *testing.T, a *Application, target string) renderedInstanc
 	if response.Code != http.StatusOK {
 		t.Fatalf("render returned %d: %s", response.Code, response.Body.String())
 	}
+	return decodeRenderedInstance(t, response)
+}
+
+func decodeRenderedInstance(t *testing.T, response *httptest.ResponseRecorder) renderedInstance {
+	t.Helper()
 	var payload struct {
 		InstanceID  string `json:"instanceId"`
 		InstanceURL string `json:"instanceUrl"`

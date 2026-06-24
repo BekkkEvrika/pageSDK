@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/BekkkEvrika/pageSDK/access"
+	"github.com/BekkkEvrika/pageSDK/authentication"
 	"github.com/BekkkEvrika/pageSDK/engine"
 	"github.com/BekkkEvrika/pageSDK/logging"
 	"github.com/BekkkEvrika/pageSDK/manifest"
@@ -30,19 +31,26 @@ type Application struct {
 	router      *gin.Engine
 	config      Config
 	syncer      access.AccessSyncProvider
+	access      *access.Registry
 	instances   *pageInstanceManager
 	initialized bool
 }
 
 type Config struct {
-	Module             string
-	KeycloakURL        string
-	Realm              string
-	ClientID           string
-	ClientSecret       string
-	AccessManifestPath string
-	PageInstanceTTL    time.Duration
-	MaxPageInstances   int
+	Module              string
+	KeycloakURL         string
+	Realm               string
+	ClientID            string
+	ClientSecret        string
+	KeycloakSyncEnabled bool
+	AccessManifestPath  string
+	PageInstanceTTL     time.Duration
+	MaxPageInstances    int
+	AccessCacheTTL      time.Duration
+	// Authenticator enables Bearer authentication for all page, event and
+	// instance lifecycle routes. Nil preserves the legacy unauthenticated mode.
+	Authenticator    authentication.Authenticator
+	AccessAuthorizer access.AccessAuthorizer
 }
 
 // New создаёт новый Application.
@@ -50,16 +58,36 @@ func New(config ...Config) *Application {
 	a := &Application{
 		manifest: manifest.New(),
 		router:   gin.New(),
+		access:   access.NewRegistry(),
 	}
 	if len(config) > 0 {
 		a.config = config[0]
 	}
+	a.applyEnvConfig()
 	if a.config.AccessManifestPath == "" {
 		a.config.AccessManifestPath = "sfp.access.yaml"
 	}
 	a.instances = newPageInstanceManager(a.config.PageInstanceTTL, a.config.MaxPageInstances)
-	a.syncer = access.UnsupportedKeycloakProvider{Config: a.accessConfig()}
+	a.syncer = access.NewKeycloakUMAProvider(a.accessConfig())
 	return a
+}
+
+func (a *Application) applyEnvConfig() {
+	if a.config.KeycloakURL == "" {
+		a.config.KeycloakURL = os.Getenv("KEYCLOAK_BASE_URL")
+	}
+	if a.config.Realm == "" {
+		a.config.Realm = os.Getenv("KEYCLOAK_REALM")
+	}
+	if a.config.ClientID == "" {
+		a.config.ClientID = os.Getenv("KEYCLOAK_CLIENT_ID")
+	}
+	if a.config.ClientSecret == "" {
+		a.config.ClientSecret = os.Getenv("KEYCLOAK_CLIENT_SECRET")
+	}
+	if !a.config.KeycloakSyncEnabled {
+		a.config.KeycloakSyncEnabled = strings.EqualFold(os.Getenv("KEYCLOAK_SYNC_ENABLED"), "true")
+	}
 }
 
 // Manifest возвращает манифест приложения.
@@ -72,10 +100,34 @@ func (a *Application) Config() Config {
 	return a.config
 }
 
+func (a *Application) AccessRegistry() *access.Registry {
+	return a.access
+}
+
+func (a *Application) RegisterAccessGroup(group access.AccessGroup) error {
+	return a.access.Register(group)
+}
+
 func (a *Application) SetAccessSyncProvider(provider access.AccessSyncProvider) {
 	if provider != nil {
 		a.syncer = provider
 	}
+}
+
+func (a *Application) SetAuthenticator(authenticator authentication.Authenticator) {
+	a.config.Authenticator = authenticator
+}
+
+func (a *Application) SetAccessAuthorizer(authorizer access.AccessAuthorizer) {
+	a.config.AccessAuthorizer = authorizer
+}
+
+func (a *Application) UseRPTAccessAuthorizer(ttl ...time.Duration) {
+	cacheTTL := a.config.AccessCacheTTL
+	if len(ttl) > 0 {
+		cacheTTL = ttl[0]
+	}
+	a.config.AccessAuthorizer = access.NewCachedAuthorizer(access.RPTClaimSource{}, cacheTTL)
 }
 
 // Bootstrap запускает lifecycle:
@@ -116,12 +168,17 @@ func (a *Application) Execute(ctx context.Context, initFn InitFunc, addr string,
 		if err != nil {
 			return err
 		}
-		generated, err := access.Generate(path, a.config.Module, resources)
+		pageGroups, err := access.CollectPageGroups(a.manifest)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(output, "generated %s (%d resources, %d stale, %d groups)\n",
-			path, len(generated.Resources), len(generated.Stale), len(generated.PermissionGroups))
+		accessGroups := append(pageGroups, a.access.All()...)
+		generated, err := access.GenerateAccess(path, a.config.Module, resources, accessGroups)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(output, "generated %s (%d access groups, %d resources, %d stale, %d permission groups)\n",
+			path, len(generated.AccessGroups), len(generated.Resources), len(generated.Stale), len(generated.PermissionGroups))
 		return nil
 	case "validate":
 		value, err := access.Read(path)
@@ -187,6 +244,8 @@ func (a *Application) accessConfig() access.Config {
 		Realm:        a.config.Realm,
 		ClientID:     a.config.ClientID,
 		ClientSecret: a.config.ClientSecret,
+		SyncEnabled:  a.config.KeycloakSyncEnabled,
+		CacheTTL:     a.config.AccessCacheTTL,
 	}
 }
 
@@ -258,7 +317,11 @@ func (a *Application) registerRoute(entry manifest.Entry, route engine.RouteDefi
 // subsequent events identified by the pageInstanceId query parameter.
 func (a *Application) makeGinHandler(entry manifest.Entry, route engine.RouteDefinition) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		requestContext := a.newRequestContext(ctx, entry.Key)
+		principal, ok := a.authenticate(ctx)
+		if !ok {
+			return
+		}
+		requestContext := a.newRequestContext(ctx, entry.Key, principal.User)
 		var (
 			page     engine.Page
 			instance *pageInstance
@@ -266,6 +329,9 @@ func (a *Application) makeGinHandler(entry manifest.Entry, route engine.RouteDef
 
 		switch route.Mode {
 		case engine.RouteModeRender:
+			if !a.authorizeAccessGroup(ctx, principal, access.PageAccessGroupCode(entry.Key)) {
+				return
+			}
 			page = entry.Factory()
 			instanceID, err := a.instances.NewID()
 			if err != nil {
@@ -281,7 +347,7 @@ func (a *Application) makeGinHandler(entry manifest.Entry, route engine.RouteDef
 			}
 			requestContext.PageInstanceID = instanceID
 			var err error
-			instance, err = a.instances.Acquire(instanceID, entry.Key)
+			instance, err = a.instances.Acquire(instanceID, entry.Key, principal.ID)
 			if err != nil {
 				status := http.StatusNotFound
 				if errors.Is(err, ErrPageInstanceExpired) {
@@ -302,7 +368,13 @@ func (a *Application) makeGinHandler(entry manifest.Entry, route engine.RouteDef
 			return
 		}
 		if route.Mode == engine.RouteModeRender {
-			if err := a.instances.Add(requestContext.PageInstanceID, entry.Key, page); err != nil {
+			if err := a.applyDSLAccess(ctx, principal, result); err != nil {
+				ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": "access check failed"})
+				return
+			}
+		}
+		if route.Mode == engine.RouteModeRender {
+			if err := a.instances.Add(requestContext.PageInstanceID, entry.Key, principal.ID, page); err != nil {
 				ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 				return
 			}
@@ -313,14 +385,51 @@ func (a *Application) makeGinHandler(entry manifest.Entry, route engine.RouteDef
 	}
 }
 
+func (a *Application) applyDSLAccess(ctx *gin.Context, principal authentication.Principal, result any) error {
+	if a.config.AccessAuthorizer == nil {
+		return nil
+	}
+	render, ok := result.(*engine.RenderResult)
+	if !ok || render == nil {
+		return nil
+	}
+	filtered, err := (access.DSLPermissionResolver{Authorizer: a.config.AccessAuthorizer}).
+		Apply(ctx.Request.Context(), principal.ID, principal.User, render.DSL)
+	if err != nil {
+		return err
+	}
+	render.DSL = filtered
+	return nil
+}
+
+func (a *Application) authorizeAccessGroup(ctx *gin.Context, principal authentication.Principal, code string) bool {
+	if a.config.AccessAuthorizer == nil {
+		return true
+	}
+	allowed, err := a.config.AccessAuthorizer.HasAccess(ctx.Request.Context(), principal.ID, principal.User, code)
+	if err != nil {
+		ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": "access check failed"})
+		return false
+	}
+	if !allowed {
+		ctx.JSON(http.StatusForbidden, gin.H{"error": "permission denied", "accessGroup": code})
+		return false
+	}
+	return true
+}
+
 func (a *Application) deletePageInstance(pageKey string) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
+		principal, ok := a.authenticate(ctx)
+		if !ok {
+			return
+		}
 		instanceID := ctx.Query(engine.PageInstanceParam)
 		if instanceID == "" {
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": engine.PageInstanceParam + " is required"})
 			return
 		}
-		if !a.instances.Delete(instanceID, pageKey) {
+		if !a.instances.Delete(instanceID, pageKey, principal.ID) {
 			ctx.JSON(http.StatusNotFound, gin.H{"error": ErrPageInstanceNotFound.Error()})
 			return
 		}
@@ -328,7 +437,34 @@ func (a *Application) deletePageInstance(pageKey string) gin.HandlerFunc {
 	}
 }
 
-func (a *Application) newRequestContext(ctx *gin.Context, pageKey string) *engine.RequestContext {
+func (a *Application) authenticate(ctx *gin.Context) (authentication.Principal, bool) {
+	if a.config.Authenticator == nil {
+		return authentication.Principal{User: engine.User{}}, true
+	}
+	token, err := bearerToken(ctx.GetHeader("Authorization"))
+	if err != nil {
+		ctx.Header("WWW-Authenticate", "Bearer")
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return authentication.Principal{}, false
+	}
+	principal, err := a.config.Authenticator.Authenticate(ctx.Request.Context(), token)
+	if err != nil || principal.ID == "" || principal.User == nil {
+		ctx.Header("WWW-Authenticate", "Bearer")
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return authentication.Principal{}, false
+	}
+	return principal, true
+}
+
+func bearerToken(header string) (string, error) {
+	parts := strings.Fields(header)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || parts[1] == "" {
+		return "", errors.New("bearer token is required")
+	}
+	return parts[1], nil
+}
+
+func (a *Application) newRequestContext(ctx *gin.Context, pageKey string, user engine.User) *engine.RequestContext {
 	body, _ := io.ReadAll(ctx.Request.Body)
 	query := queryParams(ctx)
 	return &engine.RequestContext{
@@ -336,7 +472,7 @@ func (a *Application) newRequestContext(ctx *gin.Context, pageKey string) *engin
 		Module:  a.config.Module,
 		Params:  requestParams(ctx, query),
 		Query:   query,
-		User:    engine.User{},
+		User:    user,
 		System:  engine.SystemKeys{},
 		Body:    body,
 	}

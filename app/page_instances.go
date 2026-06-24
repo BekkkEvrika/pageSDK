@@ -20,6 +20,7 @@ var (
 type pageInstance struct {
 	ID         string
 	PageKey    string
+	OwnerID    string
 	Page       engine.Page
 	CreatedAt  time.Time
 	LastAccess time.Time
@@ -57,7 +58,7 @@ func (m *pageInstanceManager) NewID() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(value), nil
 }
 
-func (m *pageInstanceManager) Add(id, pageKey string, page engine.Page) error {
+func (m *pageInstanceManager) Add(id, pageKey, ownerID string, page engine.Page) error {
 	now := m.now()
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -68,6 +69,7 @@ func (m *pageInstanceManager) Add(id, pageKey string, page engine.Page) error {
 	m.instances[id] = &pageInstance{
 		ID:         id,
 		PageKey:    pageKey,
+		OwnerID:    ownerID,
 		Page:       page,
 		CreatedAt:  now,
 		LastAccess: now,
@@ -75,7 +77,7 @@ func (m *pageInstanceManager) Add(id, pageKey string, page engine.Page) error {
 	return nil
 }
 
-func (m *pageInstanceManager) Acquire(id, pageKey string) (*pageInstance, error) {
+func (m *pageInstanceManager) Acquire(id, pageKey, ownerID string) (*pageInstance, error) {
 	now := m.now()
 	m.mu.Lock()
 	instance, ok := m.instances[id]
@@ -88,7 +90,7 @@ func (m *pageInstanceManager) Acquire(id, pageKey string) (*pageInstance, error)
 		m.mu.Unlock()
 		return nil, ErrPageInstanceExpired
 	}
-	if instance.PageKey != pageKey {
+	if instance.PageKey != pageKey || instance.OwnerID != ownerID {
 		m.mu.Unlock()
 		return nil, ErrPageInstanceNotFound
 	}
@@ -105,11 +107,11 @@ func (m *pageInstanceManager) Release(instance *pageInstance) {
 	}
 }
 
-func (m *pageInstanceManager) Delete(id, pageKey string) bool {
+func (m *pageInstanceManager) Delete(id, pageKey, ownerID string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	instance, ok := m.instances[id]
-	if !ok || instance.PageKey != pageKey {
+	if !ok || instance.PageKey != pageKey || instance.OwnerID != ownerID {
 		return false
 	}
 	delete(m.instances, id)

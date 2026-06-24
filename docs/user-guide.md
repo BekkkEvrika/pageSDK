@@ -1375,6 +1375,44 @@ func (p *UsersPage) onReload(ctx *tableengine.TableRuntimeContext) {
 Не полагайтесь только на visibility кнопки или отсутствие frontend element.
 Authorization должна выполняться на backend в каждом чувствительном handler:
 
+### JWT authentication
+
+pageSDK может проверять Keycloak/OIDC RS256 access tokens через realm JWKS:
+
+```go
+authenticator := pagesdk.NewKeycloakJWTAuthenticator(pagesdk.KeycloakJWTConfig{
+	KeycloakURL:     "https://keycloak.example.com",
+	Realm:           "main",
+	Audience:        "page-api",
+	AuthorizedParty: "frontend",
+	ClockSkew:       30 * time.Second,
+})
+
+application := pagesdk.New(pagesdk.Config{
+	Authenticator: authenticator,
+})
+```
+
+Проверяются подпись RS256 и `kid` через JWKS, `iss`, обязательные `sub` и
+`exp`, а также `nbf`, `iat`, настроенные `aud` и `azp`.
+
+Проверенные claims доступны при построении страницы:
+
+```go
+func (p *UsersPage) Init(ctx *engine.BuildContext) error {
+	userID, _ := ctx.User["sub"].(string)
+	username, _ := ctx.User["preferred_username"].(string)
+	_, _ = userID, username
+	return nil
+}
+```
+
+И внутри event handler через `ctx.User`.
+
+Page instance закрепляется за `{iss}|{sub}`. Новый JWT после refresh может
+использовать тот же instance, если issuer и subject не изменились. Токен
+проверяется на каждом запросе и не хранится внутри instance.
+
 ```go
 func (p *UsersPage) onDelete(ctx *tableengine.TableRuntimeContext) {
 	if !hasPermission(ctx.User, "users.delete") {
@@ -1393,10 +1431,10 @@ Frontend payload недоверенный:
 - не доверяйте price, role, permission или status из row payload;
 - валидируйте callback result.
 
-`pageInstanceId` также нельзя считать authorization token. Встроенный transport
-пока не привязывает instance к owner, потому что `User` по умолчанию пуст.
-Authentication middleware или внешний gateway должны исключить передачу URL
-чужому пользователю и проверять доступ к page/event path.
+`pageInstanceId` также нельзя считать authorization token. При настроенном
+`Authenticator` transport привязывает instance к проверенному owner и
+отклоняет event/delete другого пользователя как `404`. При отсутствии
+`Authenticator` остаётся legacy-режим без этой защиты.
 
 ## 22. Testing
 

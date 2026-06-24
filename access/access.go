@@ -5,10 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/BekkkEvrika/pageSDK/manifest"
 	"github.com/BekkkEvrika/pageSDK/table"
@@ -24,14 +27,68 @@ type Config struct {
 	Realm        string
 	ClientID     string
 	ClientSecret string
+	SyncEnabled  bool
+	CacheTTL     time.Duration
+	HTTPClient   *http.Client
 }
 
 type Manifest struct {
 	Module           string            `yaml:"module,omitempty"`
 	Version          int               `yaml:"version"`
+	AccessGroups     []AccessGroup     `yaml:"accessGroups,omitempty"`
 	Resources        []Resource        `yaml:"resources,omitempty"`
 	PermissionGroups []PermissionGroup `yaml:"permissionGroups,omitempty"`
 	Stale            []StaleResource   `yaml:"stale,omitempty"`
+}
+
+type AccessGroupType string
+
+const (
+	AccessGroupPage   AccessGroupType = "page"
+	AccessGroupUI     AccessGroupType = "ui_group"
+	AccessGroupAction AccessGroupType = "action_group"
+)
+
+type ElementType string
+
+const (
+	ElementButton  ElementType = "button"
+	ElementInput   ElementType = "input"
+	ElementTable   ElementType = "table"
+	ElementColumn  ElementType = "column"
+	ElementBlock   ElementType = "block"
+	ElementSection ElementType = "section"
+	ElementMenu    ElementType = "menu"
+	ElementTab     ElementType = "tab"
+	ElementAction  ElementType = "action"
+	ElementCustom  ElementType = "custom"
+)
+
+type NoAccessBehavior string
+
+const (
+	NoAccessHidden   NoAccessBehavior = "hidden"
+	NoAccessDisabled NoAccessBehavior = "disabled"
+	NoAccessReadonly NoAccessBehavior = "readonly"
+	NoAccessRemove   NoAccessBehavior = "remove"
+)
+
+type AccessGroup struct {
+	Code        string          `yaml:"code" json:"code"`
+	Name        string          `yaml:"name,omitempty" json:"name,omitempty"`
+	Description string          `yaml:"description,omitempty" json:"description,omitempty"`
+	Type        AccessGroupType `yaml:"type" json:"type"`
+	ParentCode  string          `yaml:"parentCode,omitempty" json:"parentCode,omitempty"`
+	Elements    []AccessElement `yaml:"elements,omitempty" json:"elements,omitempty"`
+	Enabled     bool            `yaml:"enabled" json:"enabled"`
+}
+
+type AccessElement struct {
+	Code             string           `yaml:"code" json:"code"`
+	Name             string           `yaml:"name,omitempty" json:"name,omitempty"`
+	Description      string           `yaml:"description,omitempty" json:"description,omitempty"`
+	ElementType      ElementType      `yaml:"elementType" json:"elementType"`
+	NoAccessBehavior NoAccessBehavior `yaml:"noAccessBehavior" json:"noAccessBehavior"`
 }
 
 type Resource struct {
@@ -47,10 +104,12 @@ type Resource struct {
 }
 
 type PermissionGroup struct {
-	Key         string   `yaml:"key"`
-	Name        string   `yaml:"name,omitempty"`
-	Description string   `yaml:"description,omitempty"`
-	Permissions []string `yaml:"permissions,omitempty"`
+	Code         string   `yaml:"code,omitempty"`
+	Key          string   `yaml:"key,omitempty"`
+	Name         string   `yaml:"name,omitempty"`
+	Description  string   `yaml:"description,omitempty"`
+	AccessGroups []string `yaml:"accessGroups,omitempty"`
+	Permissions  []string `yaml:"permissions,omitempty"`
 }
 
 type StaleResource struct {
@@ -70,9 +129,68 @@ type SyncOptions struct {
 	DryRun bool
 }
 
+type AccessAuthorizer interface {
+	UserAccessGroups(ctx context.Context, userID string, user map[string]any) ([]string, error)
+	HasAccess(ctx context.Context, userID string, user map[string]any, accessGroupCode string) (bool, error)
+	Invalidate()
+}
+
 type AccessSyncProvider interface {
 	Sync(ctx context.Context, manifest Manifest, opts SyncOptions) error
 	Diff(ctx context.Context, manifest Manifest) (*Diff, error)
+}
+
+type Registry struct {
+	mu     sync.RWMutex
+	groups map[string]AccessGroup
+}
+
+func NewRegistry() *Registry {
+	return &Registry{groups: map[string]AccessGroup{}}
+}
+
+func (r *Registry) Register(group AccessGroup) error {
+	if strings.TrimSpace(group.Code) == "" {
+		return errors.New("access group code must not be empty")
+	}
+	if group.Type == "" {
+		return errors.New("access group type must not be empty")
+	}
+	if !group.Enabled {
+		group.Enabled = true
+	}
+	for i := range group.Elements {
+		if strings.TrimSpace(group.Elements[i].Code) == "" {
+			return fmt.Errorf("access group %q has element with empty code", group.Code)
+		}
+		if group.Elements[i].NoAccessBehavior == "" {
+			group.Elements[i].NoAccessBehavior = NoAccessHidden
+		}
+		if group.Elements[i].ElementType == "" {
+			group.Elements[i].ElementType = ElementCustom
+		}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.groups[group.Code]; exists {
+		return fmt.Errorf("duplicate access group: %s", group.Code)
+	}
+	r.groups[group.Code] = group
+	return nil
+}
+
+func (r *Registry) All() []AccessGroup {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	groups := make([]AccessGroup, 0, len(r.groups))
+	for _, group := range r.groups {
+		groups = append(groups, group)
+	}
+	sort.Slice(groups, func(i, j int) bool { return groups[i].Code < groups[j].Code })
+	return groups
 }
 
 type UnsupportedKeycloakProvider struct {
@@ -168,6 +286,31 @@ func Collect(registry *manifest.Manifest, module string) ([]Resource, error) {
 	}
 	sort.Slice(resources, func(i, j int) bool { return resources[i].Key < resources[j].Key })
 	return resources, nil
+}
+
+func CollectPageGroups(registry *manifest.Manifest) ([]AccessGroup, error) {
+	groups := make([]AccessGroup, 0, len(registry.All()))
+	seen := map[string]struct{}{}
+	for _, entry := range registry.All() {
+		code := PageAccessGroupCode(entry.Key)
+		if _, exists := seen[code]; exists {
+			return nil, fmt.Errorf("access collector: duplicate access group %q", code)
+		}
+		seen[code] = struct{}{}
+		groups = append(groups, AccessGroup{
+			Code:        code,
+			Name:        "Page " + entry.Key,
+			Description: "Page " + entry.Key,
+			Type:        AccessGroupPage,
+			Enabled:     true,
+		})
+	}
+	sort.Slice(groups, func(i, j int) bool { return groups[i].Code < groups[j].Code })
+	return groups, nil
+}
+
+func PageAccessGroupCode(pageKey string) string {
+	return Key("", "page", pageKey)
 }
 
 func resourceFromRoute(module, pageKey, path string) (Resource, bool) {
@@ -269,6 +412,22 @@ func Generate(path, module string, resources []Resource) (Manifest, error) {
 	return merged, nil
 }
 
+func GenerateAccess(path, module string, resources []Resource, groups []AccessGroup) (Manifest, error) {
+	current := Manifest{}
+	if existing, err := Read(path); err == nil {
+		current = existing
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return Manifest{}, err
+	}
+	merged := Merge(current, module, resources)
+	merged = MergeAccessGroups(merged, groups)
+	merged.Module = module
+	if err := Write(path, merged); err != nil {
+		return Manifest{}, err
+	}
+	return merged, nil
+}
+
 func Merge(current Manifest, module string, discovered []Resource) Manifest {
 	result := current
 	result.Module = module
@@ -307,10 +466,50 @@ func Merge(current Manifest, module string, discovered []Resource) Manifest {
 	return result
 }
 
+func MergeAccessGroups(current Manifest, discovered []AccessGroup) Manifest {
+	result := current
+	if result.Version == 0 {
+		result.Version = CurrentVersion
+	}
+
+	oldGroups := make(map[string]AccessGroup, len(current.AccessGroups))
+	for _, item := range current.AccessGroups {
+		oldGroups[item.Code] = item
+	}
+	discoveredCodes := make(map[string]struct{}, len(discovered))
+	result.AccessGroups = make([]AccessGroup, 0, len(discovered))
+	for _, item := range discovered {
+		discoveredCodes[item.Code] = struct{}{}
+		if old, ok := oldGroups[item.Code]; ok {
+			item = preserveAccessGroupMetadata(item, old)
+		}
+		result.AccessGroups = append(result.AccessGroups, item)
+	}
+	sortManifest(&result)
+	return result
+}
+
 func preserveResourceMetadata(discovered, old Resource) Resource {
 	if old.Description != "" {
 		discovered.Description = old.Description
 	}
+	return discovered
+}
+
+func preserveAccessGroupMetadata(discovered, old AccessGroup) AccessGroup {
+	if old.Name != "" {
+		discovered.Name = old.Name
+	}
+	if old.Description != "" {
+		discovered.Description = old.Description
+	}
+	if old.ParentCode != "" {
+		discovered.ParentCode = old.ParentCode
+	}
+	if len(old.Elements) > 0 {
+		discovered.Elements = old.Elements
+	}
+	discovered.Enabled = old.Enabled
 	return discovered
 }
 
@@ -347,21 +546,63 @@ func Validate(value Manifest, module string) error {
 		}
 		staleKeys[item.Key] = struct{}{}
 	}
+	accessGroupCodes := map[string]struct{}{}
+	for _, group := range value.AccessGroups {
+		if strings.TrimSpace(group.Code) == "" {
+			problems = append(problems, "access group code must not be empty")
+			continue
+		}
+		if _, exists := accessGroupCodes[group.Code]; exists {
+			problems = append(problems, "duplicate access group: "+group.Code)
+		}
+		accessGroupCodes[group.Code] = struct{}{}
+		if group.Type == "" {
+			problems = append(problems, fmt.Sprintf("access group %q type must not be empty", group.Code))
+		}
+		if group.ParentCode != "" {
+			if _, exists := accessGroupCodes[group.ParentCode]; !exists && !containsAccessGroup(value.AccessGroups, group.ParentCode) {
+				problems = append(problems, fmt.Sprintf("access group %q references unknown parent %q", group.Code, group.ParentCode))
+			}
+		}
+		elementCodes := map[string]struct{}{}
+		for _, element := range group.Elements {
+			if strings.TrimSpace(element.Code) == "" {
+				problems = append(problems, fmt.Sprintf("access group %q has element with empty code", group.Code))
+				continue
+			}
+			if _, exists := elementCodes[element.Code]; exists {
+				problems = append(problems, fmt.Sprintf("access group %q has duplicate element %q", group.Code, element.Code))
+			}
+			elementCodes[element.Code] = struct{}{}
+			if element.ElementType == "" {
+				problems = append(problems, fmt.Sprintf("access element %q type must not be empty", element.Code))
+			}
+			if element.NoAccessBehavior == "" {
+				problems = append(problems, fmt.Sprintf("access element %q noAccessBehavior must not be empty", element.Code))
+			}
+		}
+	}
 	groupKeys := map[string]struct{}{}
 	for _, group := range value.PermissionGroups {
-		if strings.TrimSpace(group.Key) == "" {
+		groupCode := permissionGroupCode(group)
+		if strings.TrimSpace(groupCode) == "" {
 			problems = append(problems, "permission group key must not be empty")
-		} else if _, exists := groupKeys[group.Key]; exists {
-			problems = append(problems, "duplicate permission group key: "+group.Key)
+		} else if _, exists := groupKeys[groupCode]; exists {
+			problems = append(problems, "duplicate permission group key: "+groupCode)
 		}
-		groupKeys[group.Key] = struct{}{}
+		groupKeys[groupCode] = struct{}{}
+		for _, accessGroup := range permissionGroupAccessGroups(group) {
+			if !matchesAny(accessGroup, accessGroupCodes) {
+				problems = append(problems, fmt.Sprintf("permission group %q references unknown access group %q", groupCode, accessGroup))
+			}
+		}
 		for _, permission := range group.Permissions {
 			if matchesAny(permission, staleKeys) {
-				problems = append(problems, fmt.Sprintf("group %q uses stale permission %q", group.Key, permission))
+				problems = append(problems, fmt.Sprintf("group %q uses stale permission %q", groupCode, permission))
 				continue
 			}
 			if !matchesAny(permission, resourceKeys) {
-				problems = append(problems, fmt.Sprintf("group %q references unknown permission %q", group.Key, permission))
+				problems = append(problems, fmt.Sprintf("group %q references unknown permission %q", groupCode, permission))
 			}
 		}
 	}
@@ -370,6 +611,15 @@ func Validate(value Manifest, module string) error {
 		return errors.New(strings.Join(problems, "\n"))
 	}
 	return nil
+}
+
+func containsAccessGroup(groups []AccessGroup, code string) bool {
+	for _, group := range groups {
+		if group.Code == code {
+			return true
+		}
+	}
+	return false
 }
 
 func Compare(discovered []Resource, value Manifest) Diff {
@@ -401,15 +651,30 @@ func Compare(discovered []Resource, value Manifest) Diff {
 		}
 	}
 	for _, group := range value.PermissionGroups {
-		diff.ExistingGroups = append(diff.ExistingGroups, group.Key)
+		groupCode := permissionGroupCode(group)
+		diff.ExistingGroups = append(diff.ExistingGroups, groupCode)
 		for _, permission := range group.Permissions {
 			if matchesAny(permission, stale) || !matchesAny(permission, active) || !matchesAny(permission, dsl) {
-				diff.BrokenGroupPermissions = append(diff.BrokenGroupPermissions, group.Key+": "+permission)
+				diff.BrokenGroupPermissions = append(diff.BrokenGroupPermissions, groupCode+": "+permission)
 			}
 		}
 	}
 	sortStringsInDiff(&diff)
 	return diff
+}
+
+func permissionGroupCode(group PermissionGroup) string {
+	if group.Code != "" {
+		return group.Code
+	}
+	return group.Key
+}
+
+func permissionGroupAccessGroups(group PermissionGroup) []string {
+	if len(group.AccessGroups) > 0 {
+		return group.AccessGroups
+	}
+	return nil
 }
 
 func matchesAny(permission string, keys map[string]struct{}) bool {
@@ -429,10 +694,19 @@ func matchesAny(permission string, keys map[string]struct{}) bool {
 }
 
 func sortManifest(value *Manifest) {
+	sort.Slice(value.AccessGroups, func(i, j int) bool { return value.AccessGroups[i].Code < value.AccessGroups[j].Code })
 	sort.Slice(value.Resources, func(i, j int) bool { return value.Resources[i].Key < value.Resources[j].Key })
-	sort.Slice(value.PermissionGroups, func(i, j int) bool { return value.PermissionGroups[i].Key < value.PermissionGroups[j].Key })
+	sort.Slice(value.PermissionGroups, func(i, j int) bool {
+		return permissionGroupCode(value.PermissionGroups[i]) < permissionGroupCode(value.PermissionGroups[j])
+	})
 	sort.Slice(value.Stale, func(i, j int) bool { return value.Stale[i].Key < value.Stale[j].Key })
+	for i := range value.AccessGroups {
+		sort.Slice(value.AccessGroups[i].Elements, func(j, k int) bool {
+			return value.AccessGroups[i].Elements[j].Code < value.AccessGroups[i].Elements[k].Code
+		})
+	}
 	for i := range value.PermissionGroups {
+		sort.Strings(value.PermissionGroups[i].AccessGroups)
 		sort.Strings(value.PermissionGroups[i].Permissions)
 	}
 }

@@ -111,6 +111,32 @@ curl http://localhost:8080/clients/page/users.edit
 Если `Module` пустой, старые маршруты `/page/...` и `/event/...` остаются
 без изменений.
 
+## JWT authentication и владельцы page instances
+
+Для Keycloak/OIDC можно включить встроенную проверку RS256 JWT через JWKS:
+
+```go
+authenticator := pagesdk.NewKeycloakJWTAuthenticator(pagesdk.KeycloakJWTConfig{
+	KeycloakURL:     "https://keycloak.example.com",
+	Realm:           "main",
+	Audience:        "page-api",
+	AuthorizedParty: "frontend",
+})
+
+app := pagesdk.New(pagesdk.Config{
+	Authenticator: authenticator,
+})
+```
+
+После включения `Authenticator` все page, event, callback и instance-delete
+routes требуют `Authorization: Bearer <token>`. Проверенные JWT claims
+передаются в `BuildContext.User` и runtime context.
+
+Каждый rendered page instance закрепляется за идентичностью
+`{iss}|{sub}`. Event с JWT другого пользователя получает `404`, даже если
+ему известен `pageInstanceId`. JWT проверяется заново на каждом запросе;
+сам access token в page instance не сохраняется.
+
 ## UI access manifest
 
 После перехода entrypoint с `Bootstrap` на `Run` собранный сервис поддерживает:
@@ -123,15 +149,82 @@ curl http://localhost:8080/clients/page/users.edit
 ./service access sync --dry-run
 ```
 
-`access generate` собирает page, form event, table event/action и column-view
-ключи из зарегистрированного DSL. Повторная генерация сохраняет вручную
-созданные `permissionGroups` и описания, а исчезнувшие ключи переносит в
-`stale`.
+`access generate` сохраняет legacy `resources`, а также новую модель
+`accessGroups`. В Keycloak синхронизируются только `accessGroups`; конкретные
+кнопки, inputs, blocks, sections и другие UI elements остаются внутри SFP.
 
-Для реальной синхронизации с Keycloak приложение может установить реализацию
-`pagesdk.AccessSyncProvider` через `app.SetAccessSyncProvider`. Встроенный
-provider намеренно поддерживает только безопасный `--dry-run` и возвращает
-понятную ошибку для реальной синхронизации.
+Access group можно зарегистрировать вручную:
+
+```go
+_ = app.RegisterAccessGroup(pagesdk.AccessGroup{
+	Code:        "client.card.editing",
+	Name:        "Редактирование карточки клиента",
+	Description: "Поля и действия редактирования клиента",
+	Type:        pagesdk.AccessGroupUI,
+	ParentCode:  "page.clients.card",
+	Enabled:     true,
+	Elements: []pagesdk.AccessElement{
+		{
+			Code:             "client.name.input",
+			ElementType:      pagesdk.ElementInput,
+			NoAccessBehavior: pagesdk.NoAccessReadonly,
+		},
+		{
+			Code:             "client.save.button",
+			ElementType:      pagesdk.ElementButton,
+			NoAccessBehavior: pagesdk.NoAccessHidden,
+		},
+	},
+})
+```
+
+Встроенный `KeycloakUMAProvider` получает service account token через
+`/realms/{realm}/protocol/openid-connect/token` и создаёт/обновляет UMA
+resources через `/realms/{realm}/authz/protection/resource_set`. В payload
+уходит только access group code/name/description/type; `Elements` не
+отправляются в Keycloak.
+
+Настройки можно передать через `pagesdk.Config` или env:
+
+```text
+KEYCLOAK_BASE_URL=http://IP:8081
+KEYCLOAK_REALM=sfp
+KEYCLOAK_CLIENT_ID=gateway
+KEYCLOAK_CLIENT_SECRET=...
+KEYCLOAK_SYNC_ENABLED=true
+```
+
+Для runtime-проверки по Keycloak RPT включите RPT authorizer:
+
+```go
+app := pagesdk.New(pagesdk.Config{
+	Authenticator: pagesdk.NewKeycloakJWTAuthenticator(pagesdk.KeycloakJWTConfig{
+		KeycloakURL: "http://IP:8081",
+		Realm:       "sfp",
+		Audience:    "gateway",
+	}),
+})
+
+app.UseRPTAccessAuthorizer()
+```
+
+В этом режиме SDK не ждёт роли пользователя в JWT. Он читает access groups из
+RPT:
+
+```json
+{
+  "authorization": {
+    "permissions": [
+      { "resource_set_name": "page.clients.card" },
+      { "resource_set_name": "client.card.editing" }
+    ]
+  }
+}
+```
+
+Page group проверяется до `Init`; при отсутствии доступа SDK возвращает `403`
+и не строит DSL. UI groups применяются после render по полям
+`accessGroupCode` и `noAccessBehavior` внутри DSL.
 
 Render response содержит тип движка и DSL:
 
