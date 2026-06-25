@@ -371,6 +371,9 @@ func (a *Application) makeGinHandler(entry manifest.Entry, route engine.RouteDef
 			}
 			defer a.instances.Release(instance)
 			page = instance.Page
+			if route.AccessGroupCode != "" && !a.authorizeAccessGroup(ctx, principal, route.AccessGroupCode) {
+				return
+			}
 		default:
 			page = entry.Factory()
 		}

@@ -297,13 +297,60 @@ func (t *TableEngine) Routes(pageKey string, page engine.Page) []engine.RouteDef
 	for _, key := range t.eventKeys() {
 		eventKey := key
 		routes = append(routes, engine.RouteDefinition{
-			Method:  http.MethodPost,
-			Path:    tableEventRoutePath(pageKey, eventKey),
-			Handler: t.handleRoute(pageKey, eventKey),
-			Mode:    engine.RouteModeEvent,
+			Method:          http.MethodPost,
+			Path:            tableEventRoutePath(pageKey, eventKey),
+			Handler:         t.handleRoute(pageKey, eventKey),
+			Mode:            engine.RouteModeEvent,
+			AccessGroupCode: t.accessGroupForEvent(eventKey),
 		})
 	}
 	return routes
+}
+
+func (t *TableEngine) accessGroupForEvent(key tableEventKey) string {
+	switch key.Event {
+	case table.TableEventReload, table.TableEventFilter, table.TableEventPagination:
+		return t.dsl.AccessGroupCode
+	case table.TableEventRowAction:
+		return accessGroupForAction(t.dsl.Actions, "row", key.ActionID)
+	case table.TableEventToolbarAction:
+		return accessGroupForAction(t.dsl.Actions, "toolbar", key.ActionID)
+	case table.TableEventSelectedAction:
+		return accessGroupForAction(t.dsl.Actions, "selected", key.ActionID)
+	case table.TableEventColumnAction:
+		for _, column := range t.dsl.Columns {
+			if column.ID != key.ColumnID {
+				continue
+			}
+			for _, action := range column.Actions {
+				if action.ID == key.ActionID {
+					return action.AccessGroupCode
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func accessGroupForAction(actions *table.TableActionGroups, kind string, actionID string) string {
+	if actions == nil {
+		return ""
+	}
+	var values []table.ActionSchema
+	switch kind {
+	case "toolbar":
+		values = actions.Toolbar
+	case "row":
+		values = actions.Row
+	case "selected":
+		values = actions.Selected
+	}
+	for _, action := range values {
+		if action.ID == actionID {
+			return action.AccessGroupCode
+		}
+	}
+	return ""
 }
 
 // Render создаёт DSL таблицы.

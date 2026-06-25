@@ -382,10 +382,11 @@ func (f *FormEngine) Routes(pageKey string, page engine.Page) []engine.RouteDefi
 	for _, route := range f.eventRoutes {
 		eventKey := route.Key
 		routes = append(routes, engine.RouteDefinition{
-			Method:  route.Method,
-			Path:    route.Path,
-			Handler: f.handleRoute(pageKey, eventKey),
-			Mode:    engine.RouteModeEvent,
+			Method:          route.Method,
+			Path:            route.Path,
+			Handler:         f.handleRoute(pageKey, eventKey),
+			Mode:            engine.RouteModeEvent,
+			AccessGroupCode: f.accessGroupForEvent(eventKey),
 		})
 	}
 	routes = append(routes, engine.RouteDefinition{
@@ -401,6 +402,14 @@ func (f *FormEngine) Routes(pageKey string, page engine.Page) []engine.RouteDefi
 		Mode:    engine.RouteModeEvent,
 	})
 	return routes
+}
+
+func (f *FormEngine) accessGroupForEvent(eventKey formEventKey) string {
+	input := f.findInputById(eventKey.Action)
+	if input == nil {
+		return ""
+	}
+	return input.AccessGroupCode
 }
 
 // Render создаёт DSL формы.

@@ -1517,7 +1517,25 @@ func (p *UsersPage) onReload(ctx *tableengine.TableRuntimeContext) {
 ## 22. Authorization
 
 Не полагайтесь только на visibility кнопки или отсутствие frontend element.
-Authorization должна выполняться на backend в каждом чувствительном handler:
+Если элемент помечен через `.Access(group, ...)`, SDK проверяет эту группу не
+только при render-фильтрации DSL, но и перед выполнением event handler.
+
+Это значит:
+
+- page group проверяется до `Init`; без доступа SDK возвращает `403` и не
+  строит DSL;
+- form control event с `AccessGroupCode` проверяется перед `OnClick`/`OnChange`;
+- table reload/filter/pagination проверяются по access group всей таблицы;
+- table toolbar/row/selected/column actions проверяются по access group самого
+  action;
+- если access group отсутствует, SDK возвращает `403`, и handler не
+  выполняется;
+- event без `.Access(...)` остаётся доступным после обычных проверок JWT,
+  page access и owner `pageInstanceId`.
+
+Handler всё равно должен проверять бизнес-правила: tenant, ownership, row ID,
+актуальное состояние entity и другие данные, которые нельзя доверять frontend
+payload.
 
 ### JWT authentication
 

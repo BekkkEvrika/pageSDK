@@ -279,7 +279,9 @@ RPT:
 
 Page group проверяется до `Init`; при отсутствии доступа SDK возвращает `403`
 и не строит DSL. UI groups применяются после render по полям
-`accessGroupCode` и `noAccessBehavior` внутри DSL.
+`accessGroupCode` и `noAccessBehavior` внутри DSL. Эти же группы проверяются
+на backend перед event handler: скрытый form/table action нельзя выполнить
+ручным POST, SDK вернёт `403`.
 
 Render response содержит тип движка и DSL:
 

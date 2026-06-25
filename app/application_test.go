@@ -114,6 +114,96 @@ func TestRPTPermissionsAuthorizePage(t *testing.T) {
 	}
 }
 
+func TestAnnotatedFormEventRequiresAccessGroup(t *testing.T) {
+	group := access.AccessGroup{Code: "client.card.editing", Name: "Редактирование клиента"}
+	authenticator := authentication.AuthenticatorFunc(func(_ context.Context, token string) (authentication.Principal, error) {
+		return authentication.Principal{
+			ID:   token,
+			User: engine.User{"sub": token},
+		}, nil
+	})
+	a := New(Config{
+		Authenticator: authenticator,
+		AccessAuthorizer: access.StaticAuthorizer{
+			Groups: map[string][]string{
+				"page-only-user": {"page.clients.card"},
+				"editor-user":    {"page.clients.card", group.Code},
+			},
+		},
+	})
+	a.Manifest().Register("clients.card", func() engine.Page {
+		return &accessAnnotatedPage{FormEngine: &formengine.FormEngine{}, group: group}
+	})
+	a.registerRoutes()
+
+	deniedRender := renderInstanceWithBearer(t, a, "/page/clients.card", "page-only-user")
+	deniedEvent := httptest.NewRequest(http.MethodPost, deniedRender.EventURL, strings.NewReader(`{}`))
+	deniedEvent.Header.Set("Authorization", "Bearer page-only-user")
+	deniedResponse := httptest.NewRecorder()
+	a.router.ServeHTTP(deniedResponse, deniedEvent)
+	if deniedResponse.Code != http.StatusForbidden {
+		t.Fatalf("form event without access group returned %d: %s", deniedResponse.Code, deniedResponse.Body.String())
+	}
+
+	allowedRender := renderInstanceWithBearer(t, a, "/page/clients.card", "editor-user")
+	allowedEvent := httptest.NewRequest(http.MethodPost, allowedRender.EventURL, strings.NewReader(`{}`))
+	allowedEvent.Header.Set("Authorization", "Bearer editor-user")
+	allowedResponse := httptest.NewRecorder()
+	a.router.ServeHTTP(allowedResponse, allowedEvent)
+	if allowedResponse.Code != http.StatusOK {
+		t.Fatalf("form event with access group returned %d: %s", allowedResponse.Code, allowedResponse.Body.String())
+	}
+}
+
+func TestAnnotatedTableEventRequiresAccessGroup(t *testing.T) {
+	group := access.AccessGroup{Code: "client.table.actions", Name: "Действия таблицы клиентов"}
+	authenticator := authentication.AuthenticatorFunc(func(_ context.Context, token string) (authentication.Principal, error) {
+		return authentication.Principal{
+			ID:   token,
+			User: engine.User{"sub": token},
+		}, nil
+	})
+	a := New(Config{
+		Authenticator: authenticator,
+		AccessAuthorizer: access.StaticAuthorizer{
+			Groups: map[string][]string{
+				"page-only-user": {"page.clients.list"},
+				"actions-user":   {"page.clients.list", group.Code},
+			},
+		},
+	})
+	a.Manifest().Register("clients.list", func() engine.Page {
+		return &accessAnnotatedTablePage{TableEngine: &tableengine.TableEngine{}, group: group}
+	})
+	a.registerRoutes()
+
+	deniedRender := renderInstanceMetadataWithBearer(t, a, "/page/clients.list", "page-only-user")
+	deniedEvent := httptest.NewRequest(
+		http.MethodPost,
+		"/event/clients.list/table/clients/toolbar/export?"+engine.PageInstanceParam+"="+deniedRender.InstanceID,
+		strings.NewReader(`{}`),
+	)
+	deniedEvent.Header.Set("Authorization", "Bearer page-only-user")
+	deniedResponse := httptest.NewRecorder()
+	a.router.ServeHTTP(deniedResponse, deniedEvent)
+	if deniedResponse.Code != http.StatusForbidden {
+		t.Fatalf("table action event without access group returned %d: %s", deniedResponse.Code, deniedResponse.Body.String())
+	}
+
+	allowedRender := renderInstanceMetadataWithBearer(t, a, "/page/clients.list", "actions-user")
+	allowedEvent := httptest.NewRequest(
+		http.MethodPost,
+		"/event/clients.list/table/clients/toolbar/export?"+engine.PageInstanceParam+"="+allowedRender.InstanceID,
+		strings.NewReader(`{}`),
+	)
+	allowedEvent.Header.Set("Authorization", "Bearer actions-user")
+	allowedResponse := httptest.NewRecorder()
+	a.router.ServeHTTP(allowedResponse, allowedEvent)
+	if allowedResponse.Code != http.StatusOK {
+		t.Fatalf("table action event with access group returned %d: %s", allowedResponse.Code, allowedResponse.Body.String())
+	}
+}
+
 type authenticatedPage struct {
 	*formengine.FormEngine
 }
@@ -179,7 +269,7 @@ func (p *cliPage) Init(_ *engine.BuildContext) error {
 
 func (p *accessAnnotatedPage) Init(_ *engine.BuildContext) error {
 	p.Text("client.name").Access(p.group, access.NoAccessReadonly)
-	p.Button("save").Access(p.group, access.NoAccessHidden)
+	p.Button("save").Access(p.group, access.NoAccessHidden).OnClick(func(*formengine.RuntimeContext) {})
 	return nil
 }
 
@@ -450,6 +540,52 @@ func renderInstance(t *testing.T, a *Application, target string) renderedInstanc
 		t.Fatalf("render returned %d: %s", response.Code, response.Body.String())
 	}
 	return decodeRenderedInstance(t, response)
+}
+
+func renderInstanceWithBearer(t *testing.T, a *Application, target string, token string) renderedInstance {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodGet, target, nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	a.router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("render returned %d: %s", response.Code, response.Body.String())
+	}
+	return decodeRenderedInstance(t, response)
+}
+
+func renderInstanceMetadataWithBearer(t *testing.T, a *Application, target string, token string) renderedInstance {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodGet, target, nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	a.router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("render returned %d: %s", response.Code, response.Body.String())
+	}
+	return decodeRenderedInstanceMetadata(t, response)
+}
+
+func decodeRenderedInstanceMetadata(t *testing.T, response *httptest.ResponseRecorder) renderedInstance {
+	t.Helper()
+	var payload struct {
+		InstanceID  string `json:"instanceId"`
+		InstanceURL string `json:"instanceUrl"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.InstanceID == "" {
+		t.Fatal("render response does not contain instanceId")
+	}
+	if !strings.Contains(payload.InstanceURL, engine.PageInstanceParam+"="+payload.InstanceID) {
+		t.Fatalf("render response does not contain a valid instanceUrl: %q", payload.InstanceURL)
+	}
+	return renderedInstance{
+		InstanceID:  payload.InstanceID,
+		InstanceURL: payload.InstanceURL,
+		Body:        response.Body.String(),
+	}
 }
 
 func decodeRenderedInstance(t *testing.T, response *httptest.ResponseRecorder) renderedInstance {

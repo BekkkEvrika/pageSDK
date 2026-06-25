@@ -40,10 +40,11 @@ type RequestContext struct {
 
 // RouteDefinition — route, предоставленный конкретным Engine.
 type RouteDefinition struct {
-	Method  string
-	Path    string
-	Handler RouteHandler
-	Mode    RouteMode
+	Method          string
+	Path            string
+	Handler         RouteHandler
+	Mode            RouteMode
+	AccessGroupCode string
 }
 
 // RouteMode describes whether a route creates or requires a page instance.
