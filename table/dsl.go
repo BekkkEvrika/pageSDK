@@ -3,6 +3,8 @@ package table
 import (
 	"strings"
 	"unicode"
+
+	"github.com/BekkkEvrika/pageSDK/access"
 )
 
 // New creates an empty table DSL schema.
@@ -63,6 +65,13 @@ type ActionBuilder struct {
 	handler TableEventHandler
 }
 
+func (b *ActionBuilder) Schema() ActionSchema {
+	if b == nil {
+		return ActionSchema{}
+	}
+	return b.action
+}
+
 // Label sets the action label.
 func (b *ActionBuilder) Label(label string) *ActionBuilder {
 	if b != nil {
@@ -91,6 +100,17 @@ func (b *ActionBuilder) Variant(variant ActionVariant) *ActionBuilder {
 func (b *ActionBuilder) Hotkey(hotkey string) *ActionBuilder {
 	if b != nil {
 		b.action.Hotkey = hotkey
+	}
+	return b
+}
+
+func (b *ActionBuilder) Access(group access.AccessGroup, behavior access.NoAccessBehavior) *ActionBuilder {
+	if b != nil {
+		b.action.AccessGroupCode = group.Code
+		if b.action.ElementCode == "" {
+			b.action.ElementCode = b.action.ID
+		}
+		b.action.NoAccessBehavior = string(behavior)
 	}
 	return b
 }
@@ -136,6 +156,15 @@ func (b *Builder) RowIDKey(key string) *Builder {
 // EmptyMessage sets text displayed when the table has no rows.
 func (b *Builder) EmptyMessage(message string) *Builder {
 	b.schema.EmptyMessage = message
+	return b
+}
+
+func (b *Builder) Access(group access.AccessGroup, behavior access.NoAccessBehavior) *Builder {
+	b.schema.AccessGroupCode = group.Code
+	if b.schema.ElementCode == "" {
+		b.schema.ElementCode = b.schema.ID
+	}
+	b.schema.NoAccessBehavior = string(behavior)
 	return b
 }
 
@@ -275,6 +304,16 @@ func (b *Builder) RowAction(action ActionSchema, handler TableEventHandler) *Bui
 	return b
 }
 
+func (b *Builder) RowActions(actions ...*ActionBuilder) *Builder {
+	for _, action := range actions {
+		if action == nil {
+			continue
+		}
+		b.RowAction(action.action, action.handler)
+	}
+	return b
+}
+
 // SelectedAction appends a selected-row action and registers its handler.
 func (b *Builder) SelectedAction(action ActionSchema, handler TableEventHandler) *Builder {
 	if action.ID == "" || handler == nil || b.registrar == nil || b.tableID == "" {
@@ -294,6 +333,16 @@ func (b *Builder) SelectedAction(action ActionSchema, handler TableEventHandler)
 	}
 	actions.Selected = append(actions.Selected, action)
 	registrar.RegisterSelectedActionHandler(b.tableID, action.ID, handler)
+	return b
+}
+
+func (b *Builder) SelectedActions(actions ...*ActionBuilder) *Builder {
+	for _, action := range actions {
+		if action == nil {
+			continue
+		}
+		b.SelectedAction(action.action, action.handler)
+	}
 	return b
 }
 
@@ -419,13 +468,29 @@ func (b *ColumnBuilder) AddAction(handler TableEventHandler, name string) *Colum
 	if b == nil || b.column == nil || handler == nil || name == "" {
 		return b
 	}
-	b.column.Actions = append(b.column.Actions, ActionSchema{
+	action := ActionSchema{
 		ID:    name,
 		Label: titleFromName(name),
-	})
+	}
+	b.column.Actions = append(b.column.Actions, action)
 	b.pendingActions = append(b.pendingActions, pendingColumnAction{
 		actionID: name,
 		handler:  handler,
+	})
+	return b
+}
+
+func (b *ColumnBuilder) AddActionBuilder(action *ActionBuilder) *ColumnBuilder {
+	if b == nil || b.column == nil || action == nil || action.handler == nil || action.action.ID == "" {
+		return b
+	}
+	if action.action.Label == "" {
+		action.action.Label = titleFromName(action.action.ID)
+	}
+	b.column.Actions = append(b.column.Actions, action.action)
+	b.pendingActions = append(b.pendingActions, pendingColumnAction{
+		actionID: action.action.ID,
+		handler:  action.handler,
 	})
 	return b
 }
@@ -493,6 +558,17 @@ func (b *ColumnBuilder) ValueStyle(value string, variant TableCellVariant) *Colu
 // Format sets the column value format.
 func (b *ColumnBuilder) Format(format TableColumnFormat) *ColumnBuilder {
 	b.column.Format = &format
+	return b
+}
+
+func (b *ColumnBuilder) Access(group access.AccessGroup, behavior access.NoAccessBehavior) *ColumnBuilder {
+	if b != nil && b.column != nil {
+		b.column.AccessGroupCode = group.Code
+		if b.column.ElementCode == "" {
+			b.column.ElementCode = b.column.ID
+		}
+		b.column.NoAccessBehavior = string(behavior)
+	}
 	return b
 }
 

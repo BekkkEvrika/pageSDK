@@ -11,7 +11,6 @@ import (
 
 func TestKeycloakUMAProviderSyncsOnlyAccessGroups(t *testing.T) {
 	var createdPayload map[string]any
-	var createdRole map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/realms/sfp/protocol/openid-connect/token":
@@ -43,13 +42,8 @@ func TestKeycloakUMAProviderSyncsOnlyAccessGroups(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"_id": "created-id"})
 		case r.URL.Path == "/realms/sfp/authz/protection/resource_set/existing-id" && r.Method == http.MethodPut:
 			w.WriteHeader(http.StatusNoContent)
-		case r.URL.Path == "/admin/realms/sfp/roles/client_operator" && r.Method == http.MethodGet:
-			w.WriteHeader(http.StatusNotFound)
-		case r.URL.Path == "/admin/realms/sfp/roles" && r.Method == http.MethodPost:
-			if err := json.NewDecoder(r.Body).Decode(&createdRole); err != nil {
-				t.Fatal(err)
-			}
-			w.WriteHeader(http.StatusCreated)
+		case strings.HasPrefix(r.URL.Path, "/admin/realms/"):
+			t.Fatalf("sync must not create or update Keycloak roles: %s %s", r.Method, r.URL.Path)
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
@@ -77,9 +71,6 @@ func TestKeycloakUMAProviderSyncsOnlyAccessGroups(t *testing.T) {
 			},
 			{Code: "client.card.editing", Name: "Edit", Type: AccessGroupUI, Enabled: true},
 		},
-		PermissionGroups: []PermissionGroup{
-			{Code: "client_operator", AccessGroups: []string{"client.card.editing"}},
-		},
 	}
 	if err := provider.Sync(context.Background(), manifest, SyncOptions{}); err != nil {
 		t.Fatal(err)
@@ -90,8 +81,5 @@ func TestKeycloakUMAProviderSyncsOnlyAccessGroups(t *testing.T) {
 	body, _ := json.Marshal(createdPayload)
 	if strings.Contains(string(body), "client.name.input") {
 		t.Fatalf("UI element leaked into Keycloak payload: %s", body)
-	}
-	if createdRole["name"] != "client_operator" {
-		t.Fatalf("permission group role was not created: %#v", createdRole)
 	}
 }

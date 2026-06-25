@@ -8,13 +8,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/BekkkEvrika/pageSDK/manifest"
-	"github.com/BekkkEvrika/pageSDK/table"
 	"gopkg.in/yaml.v3"
 )
 
@@ -89,6 +89,12 @@ type AccessElement struct {
 	Description      string           `yaml:"description,omitempty" json:"description,omitempty"`
 	ElementType      ElementType      `yaml:"elementType" json:"elementType"`
 	NoAccessBehavior NoAccessBehavior `yaml:"noAccessBehavior" json:"noAccessBehavior"`
+}
+
+type ElementBinding struct {
+	GroupCode string
+	Page      string
+	Element   AccessElement
 }
 
 type Resource struct {
@@ -259,25 +265,24 @@ func Collect(registry *manifest.Manifest, module string) ([]Resource, error) {
 			}
 		}
 
-		if schemaProvider, ok := engineInstance.(interface{ Schema() *table.TableSchema }); ok {
-			schema := schemaProvider.Schema()
+		if schema, ok := tableSchemaMetadata(engineInstance); ok {
 			tableKey := schema.ID
 			if tableKey == "" {
 				tableKey = entry.Key
 			}
-			for _, column := range schema.Columns {
-				if column.ID == "" {
+			for _, columnID := range schema.ColumnIDs {
+				if columnID == "" {
 					continue
 				}
 				if err := add(Resource{
-					Key:           Key(module, "ui", entry.Key, "table", tableKey, "column", column.ID, "view"),
+					Key:           Key(module, "ui", entry.Key, "table", tableKey, "column", columnID, "view"),
 					Type:          "ui",
 					Page:          entry.Key,
 					ComponentType: "table",
 					ComponentKey:  tableKey,
 					TableKey:      tableKey,
-					ColumnKey:     column.ID,
-					Description:   fmt.Sprintf("Column %s in table %s", column.ID, tableKey),
+					ColumnKey:     columnID,
+					Description:   fmt.Sprintf("Column %s in table %s", columnID, tableKey),
 				}); err != nil {
 					return nil, err
 				}
@@ -286,6 +291,50 @@ func Collect(registry *manifest.Manifest, module string) ([]Resource, error) {
 	}
 	sort.Slice(resources, func(i, j int) bool { return resources[i].Key < resources[j].Key })
 	return resources, nil
+}
+
+type tableSchemaInfo struct {
+	ID        string
+	ColumnIDs []string
+}
+
+func tableSchemaMetadata(engineInstance any) (tableSchemaInfo, bool) {
+	value := reflect.ValueOf(engineInstance)
+	method := value.MethodByName("Schema")
+	if !method.IsValid() || method.Type().NumIn() != 0 || method.Type().NumOut() != 1 {
+		return tableSchemaInfo{}, false
+	}
+	out := method.Call(nil)
+	if len(out) != 1 || out[0].IsNil() {
+		return tableSchemaInfo{}, false
+	}
+	schema := out[0]
+	if schema.Kind() == reflect.Pointer {
+		schema = schema.Elem()
+	}
+	if schema.Kind() != reflect.Struct {
+		return tableSchemaInfo{}, false
+	}
+	idField := schema.FieldByName("ID")
+	columnsField := schema.FieldByName("Columns")
+	if !idField.IsValid() || idField.Kind() != reflect.String || !columnsField.IsValid() || columnsField.Kind() != reflect.Slice {
+		return tableSchemaInfo{}, false
+	}
+	info := tableSchemaInfo{ID: idField.String()}
+	for i := 0; i < columnsField.Len(); i++ {
+		column := columnsField.Index(i)
+		if column.Kind() == reflect.Pointer {
+			column = column.Elem()
+		}
+		if column.Kind() != reflect.Struct {
+			continue
+		}
+		columnID := column.FieldByName("ID")
+		if columnID.IsValid() && columnID.Kind() == reflect.String {
+			info.ColumnIDs = append(info.ColumnIDs, columnID.String())
+		}
+	}
+	return info, true
 }
 
 func CollectPageGroups(registry *manifest.Manifest) ([]AccessGroup, error) {
@@ -307,6 +356,74 @@ func CollectPageGroups(registry *manifest.Manifest) ([]AccessGroup, error) {
 	}
 	sort.Slice(groups, func(i, j int) bool { return groups[i].Code < groups[j].Code })
 	return groups, nil
+}
+
+func CollectElementBindings(registry *manifest.Manifest) ([]ElementBinding, error) {
+	var bindings []ElementBinding
+	for _, entry := range registry.All() {
+		page := entry.Factory()
+		engineInstance := page.GetEngine()
+		_ = engineInstance.Routes(entry.Key, page)
+		provider, ok := engineInstance.(interface{ AccessElements() []ElementBinding })
+		if !ok {
+			continue
+		}
+		for _, binding := range provider.AccessElements() {
+			if binding.Page == "" {
+				binding.Page = entry.Key
+			}
+			bindings = append(bindings, binding)
+		}
+	}
+	sort.Slice(bindings, func(i, j int) bool {
+		if bindings[i].GroupCode == bindings[j].GroupCode {
+			return bindings[i].Element.Code < bindings[j].Element.Code
+		}
+		return bindings[i].GroupCode < bindings[j].GroupCode
+	})
+	return bindings, nil
+}
+
+func MergeAccessGroupElements(groups []AccessGroup, bindings []ElementBinding) ([]AccessGroup, error) {
+	result := make([]AccessGroup, len(groups))
+	copy(result, groups)
+	index := make(map[string]int, len(result))
+	for i, group := range result {
+		index[group.Code] = i
+	}
+	for _, binding := range bindings {
+		groupIndex, ok := index[binding.GroupCode]
+		if !ok {
+			return nil, fmt.Errorf("unknown access group %q referenced by element %q", binding.GroupCode, binding.Element.Code)
+		}
+		element := binding.Element
+		if strings.TrimSpace(element.Code) == "" {
+			return nil, fmt.Errorf("access group %q has element with empty code", binding.GroupCode)
+		}
+		if element.NoAccessBehavior == "" {
+			element.NoAccessBehavior = NoAccessHidden
+		}
+		if element.ElementType == "" {
+			element.ElementType = ElementCustom
+		}
+		result[groupIndex].Elements = appendOrReplaceElement(result[groupIndex].Elements, element)
+	}
+	for i := range result {
+		sort.Slice(result[i].Elements, func(j, k int) bool {
+			return result[i].Elements[j].Code < result[i].Elements[k].Code
+		})
+	}
+	return result, nil
+}
+
+func appendOrReplaceElement(elements []AccessElement, element AccessElement) []AccessElement {
+	for i, existing := range elements {
+		if existing.Code == element.Code {
+			elements[i] = element
+			return elements
+		}
+	}
+	return append(elements, element)
 }
 
 func PageAccessGroupCode(pageKey string) string {

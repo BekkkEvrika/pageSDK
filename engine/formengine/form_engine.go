@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/BekkkEvrika/pageSDK/access"
 	"github.com/BekkkEvrika/pageSDK/engine"
 	inputs "github.com/BekkkEvrika/pageSDK/form"
 )
@@ -192,6 +193,50 @@ func (f *FormEngine) DSL() any {
 		form.FormActions = &f.formActions
 	}
 	return form
+}
+
+func (f *FormEngine) AccessElements() []access.ElementBinding {
+	if f.root.Key == "" {
+		return nil
+	}
+	return accessElementsFromContainers(f.root.Containers)
+}
+
+func accessElementsFromContainers(containers []inputs.Container) []access.ElementBinding {
+	var result []access.ElementBinding
+	for _, container := range containers {
+		for _, field := range container.Fields {
+			if field.AccessGroupCode == "" {
+				continue
+			}
+			code := field.ElementCode
+			if code == "" {
+				code = field.Id
+			}
+			result = append(result, access.ElementBinding{
+				GroupCode: field.AccessGroupCode,
+				Element: access.AccessElement{
+					Code:             code,
+					Name:             field.Label,
+					ElementType:      accessElementType(field.Type),
+					NoAccessBehavior: access.NoAccessBehavior(field.NoAccessBehavior),
+				},
+			})
+		}
+		result = append(result, accessElementsFromContainers(container.Containers)...)
+	}
+	return result
+}
+
+func accessElementType(inputType string) access.ElementType {
+	switch inputType {
+	case inputs.InputTypeButton:
+		return access.ElementButton
+	case inputs.InputTypeHidden:
+		return access.ElementCustom
+	default:
+		return access.ElementInput
+	}
 }
 
 // GetInputById returns any input field by id from this engine instance.

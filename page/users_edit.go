@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/BekkkEvrika/pageSDK/access"
 	"github.com/BekkkEvrika/pageSDK/engine"
 	"github.com/BekkkEvrika/pageSDK/engine/formengine"
 )
@@ -30,26 +31,34 @@ func (p *UsersEditPage) Init(ctx *engine.BuildContext) error {
 	p.Text("name").
 		Label("Имя пользователя").
 		DefaultValue(ctx.Params["name"]).
+		Access(UsersEditEditing, access.NoAccessReadonly).
 		OnChange(OnNameChange)
 	p.Text("email").
 		Label("Email").
-		DefaultValue(ctx.Params["email"])
+		DefaultValue(ctx.Params["email"]).
+		Access(UsersEditEditing, access.NoAccessReadonly)
 	p.Button("save").
 		Label("Сохранить").
+		Access(UsersEditEditing, access.NoAccessHidden).
 		OnClick(OnSave)
 	p.Button("pickUser").
 		Label("Выбрать пользователя").
+		Access(UsersEditPickerActions, access.NoAccessHidden).
 		OnClick(OnPickUser)
 	p.Text("selectedUser").
 		Label("Выбранный пользователь").
-		ReadOnly(true)
+		ReadOnly(true).
+		Access(UsersEditViewing, access.NoAccessReadonly)
 	p.Text("status").
 		Label("Статус").
-		DefaultValue(ctx.Params["status"])
+		DefaultValue(ctx.Params["status"]).
+		Access(UsersEditViewing, access.NoAccessReadonly)
 	p.Text("lastAction").
-		Label("Последнее действие")
+		Label("Последнее действие").
+		Access(UsersEditViewing, access.NoAccessReadonly)
 	p.Checkbox("nameChanged").
-		Label("Имя изменено")
+		Label("Имя изменено").
+		Access(UsersEditViewing, access.NoAccessDisabled)
 
 	return nil
 }

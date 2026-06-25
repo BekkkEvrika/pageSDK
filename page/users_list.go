@@ -1,6 +1,7 @@
 package page
 
 import (
+	"github.com/BekkkEvrika/pageSDK/access"
 	"github.com/BekkkEvrika/pageSDK/engine"
 	"github.com/BekkkEvrika/pageSDK/engine/tableengine"
 )
@@ -20,8 +21,12 @@ func NewUsersListPage() engine.Page {
 
 // Init вызывается на каждый request и только собирает DSL.
 func (p *UsersListPage) Init(ctx *engine.BuildContext) error {
-	p.Column("id", "ID")
-	p.Column("name", "Имя")
-	p.Column("email", "Email")
+	p.Table("users.simple").
+		Access(UsersListViewing, access.NoAccessHidden).
+		Columns(
+			p.Column("id").Header("ID").Access(UsersListViewing, access.NoAccessHidden),
+			p.Column("name").Header("Имя").Access(UsersListViewing, access.NoAccessHidden),
+			p.Column("email").Header("Email").Access(UsersListViewing, access.NoAccessHidden),
+		)
 	return nil
 }

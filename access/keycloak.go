@@ -52,11 +52,6 @@ func (p *KeycloakUMAProvider) Sync(ctx context.Context, manifest Manifest, opts 
 			return err
 		}
 	}
-	for _, group := range manifest.PermissionGroups {
-		if err := p.syncRealmRole(ctx, token, group); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -173,63 +168,6 @@ func (p *KeycloakUMAProvider) markDeprecated(ctx context.Context, token, code, i
 	return nil
 }
 
-func (p *KeycloakUMAProvider) syncRealmRole(ctx context.Context, token string, group PermissionGroup) error {
-	code := permissionGroupCode(group)
-	if code == "" {
-		return nil
-	}
-	role := keycloakRole{
-		Name:        code,
-		Description: group.Description,
-		Attributes: map[string][]string{
-			"sfp.permissionGroup": []string{"true"},
-		},
-	}
-	if group.Name != "" {
-		role.Attributes["sfp.name"] = []string{group.Name}
-	}
-	endpoint := p.realmRoleURL(code)
-	exists, err := p.roleExists(ctx, token, endpoint)
-	if err != nil {
-		return fmt.Errorf("check Keycloak permission group role %q: %w", code, err)
-	}
-	if exists {
-		if err := p.putJSON(ctx, token, endpoint, role); err != nil {
-			return fmt.Errorf("update Keycloak permission group role %q: %w", code, err)
-		}
-		return nil
-	}
-	if err := p.postJSON(ctx, token, p.realmRolesURL(), role, nil); err != nil {
-		return fmt.Errorf("create Keycloak permission group role %q: %w", code, err)
-	}
-	return nil
-}
-
-func (p *KeycloakUMAProvider) roleExists(ctx context.Context, token, endpoint string) (bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return false, err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	client := p.Config.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return false, err
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	if resp.StatusCode == http.StatusNotFound {
-		return false, nil
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return false, fmt.Errorf("%s", resp.Status)
-	}
-	return true, nil
-}
-
 func (p *KeycloakUMAProvider) postJSON(ctx context.Context, token, endpoint string, payload any, out any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -286,14 +224,6 @@ func (p *KeycloakUMAProvider) resourceSetURL() string {
 	return strings.TrimRight(p.Config.KeycloakURL, "/") + "/realms/" + url.PathEscape(p.Config.Realm) + "/authz/protection/resource_set"
 }
 
-func (p *KeycloakUMAProvider) realmRolesURL() string {
-	return strings.TrimRight(p.Config.KeycloakURL, "/") + "/admin/realms/" + url.PathEscape(p.Config.Realm) + "/roles"
-}
-
-func (p *KeycloakUMAProvider) realmRoleURL(role string) string {
-	return p.realmRolesURL() + "/" + url.PathEscape(role)
-}
-
 type keycloakResource struct {
 	ID          string              `json:"_id,omitempty"`
 	Name        string              `json:"name"`
@@ -314,12 +244,6 @@ func (r keycloakResource) isSFPAccessGroup() bool {
 
 type keycloakScope struct {
 	Name string `json:"name"`
-}
-
-type keycloakRole struct {
-	Name        string              `json:"name"`
-	Description string              `json:"description,omitempty"`
-	Attributes  map[string][]string `json:"attributes,omitempty"`
 }
 
 func keycloakResourceFromAccessGroup(group AccessGroup) keycloakResource {

@@ -142,18 +142,31 @@ routes требуют `Authorization: Bearer <token>`. Проверенные JW
 После перехода entrypoint с `Bootstrap` на `Run` собранный сервис поддерживает:
 
 ```bash
+./service
 ./service serve
 ./service access generate
 ./service access validate
 ./service access diff
 ./service access sync --dry-run
+./service access sync
 ```
+
+| Команда | Назначение |
+|---|---|
+| `serve` или запуск без аргументов | Запускает HTTP server. |
+| `access generate` | Создаёт/обновляет `sfp.access.yaml`: `accessGroups`, legacy `resources`, `stale`. |
+| `access validate` | Проверяет manifest: дубли, parent links и stale references. |
+| `access diff` | Сравнивает текущий DSL с manifest и печатает отличия legacy `resources`. |
+| `access sync --dry-run` | Валидирует manifest и показывает план без изменений в Keycloak. |
+| `access sync` | Синхронизирует `accessGroups` с Keycloak как UMA resources. Роли SDK не создаёт. |
 
 `access generate` сохраняет legacy `resources`, а также новую модель
 `accessGroups`. В Keycloak синхронизируются только `accessGroups`; конкретные
 кнопки, inputs, blocks, sections и другие UI elements остаются внутри SFP.
+Большой пример `sfp.access.yaml` с готовыми группировками есть в
+[docs/examples/sfp.access.example.yaml](docs/examples/sfp.access.example.yaml).
 
-Access group можно зарегистрировать вручную:
+Access group регистрируется один раз в central registry:
 
 ```go
 _ = app.RegisterAccessGroup(pagesdk.AccessGroup{
@@ -163,20 +176,49 @@ _ = app.RegisterAccessGroup(pagesdk.AccessGroup{
 	Type:        pagesdk.AccessGroupUI,
 	ParentCode:  "page.clients.card",
 	Enabled:     true,
-	Elements: []pagesdk.AccessElement{
-		{
-			Code:             "client.name.input",
-			ElementType:      pagesdk.ElementInput,
-			NoAccessBehavior: pagesdk.NoAccessReadonly,
-		},
-		{
-			Code:             "client.save.button",
-			ElementType:      pagesdk.ElementButton,
-			NoAccessBehavior: pagesdk.NoAccessHidden,
-		},
-	},
 })
 ```
+
+В sample package `page/` для этого есть helper:
+
+```go
+_ = page.RegisterAccessGroups(app)
+```
+
+UI elements не пишутся руками в registry. Они собираются из DSL annotations:
+
+```go
+p.Text("client.name").
+	Access(accessdefs.ClientCardEditing, pagesdk.NoAccessReadonly)
+
+p.Button("save").
+	Access(accessdefs.ClientCardEditing, pagesdk.NoAccessHidden)
+```
+
+Для TableEngine работают table, columns и actions:
+
+```go
+p.Table("clients").
+	Access(accessdefs.ClientTableActions, pagesdk.NoAccessHidden).
+	Columns(
+		p.Column("name").Access(accessdefs.ClientTableActions, pagesdk.NoAccessHidden),
+		p.Column("status").AddActionBuilder(
+			p.Action("approve", onApprove).Access(accessdefs.ClientTableActions, pagesdk.NoAccessHidden),
+		),
+	).
+	ToolbarActions(
+		p.Action("export", onExport).Access(accessdefs.ClientTableActions, pagesdk.NoAccessHidden),
+	).
+	RowActions(
+		p.Action("delete", onDelete).Access(accessdefs.ClientTableActions, pagesdk.NoAccessRemove),
+	).
+	SelectedActions(
+		p.Action("archive", onArchive).Access(accessdefs.ClientTableActions, pagesdk.NoAccessHidden),
+	)
+```
+
+Если element ссылается на незарегистрированную group, `access generate`
+завершится ошибкой и не создаст новую group из опечатки.
 
 Встроенный `KeycloakUMAProvider` получает service account token через
 `/realms/{realm}/protocol/openid-connect/token` и создаёт/обновляет UMA

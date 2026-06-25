@@ -1,6 +1,7 @@
 package page
 
 import (
+	"github.com/BekkkEvrika/pageSDK/access"
 	"github.com/BekkkEvrika/pageSDK/engine"
 	"github.com/BekkkEvrika/pageSDK/engine/tableengine"
 )
@@ -20,8 +21,12 @@ func NewAdminRolesPage() engine.Page {
 
 // Init вызывается на каждый request и только собирает DSL.
 func (p *AdminRolesPage) Init(ctx *engine.BuildContext) error {
-	p.Column("id", "ID")
-	p.Column("name", "Роль")
-	p.Column("permissions", "Права")
+	p.Table("admin_roles").
+		Access(AdminRolesViewing, access.NoAccessHidden).
+		Columns(
+			p.Column("id").Header("ID").Access(AdminRolesViewing, access.NoAccessHidden),
+			p.Column("name").Header("Роль").Access(AdminRolesViewing, access.NoAccessHidden),
+			p.Column("permissions").Header("Права").Access(AdminRolesViewing, access.NoAccessHidden),
+		)
 	return nil
 }

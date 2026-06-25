@@ -32,7 +32,6 @@ type AccessAuthorizer = access.AccessAuthorizer
 type CachedAuthorizer = access.CachedAuthorizer
 type RPTClaimSource = access.RPTClaimSource
 type JWTAuthorizationClaimSource = access.JWTAuthorizationClaimSource
-type PermissionGroupClaimSource = access.PermissionGroupClaimSource
 type KeycloakUMAProvider = access.KeycloakUMAProvider
 type Authenticator = authentication.Authenticator
 type AuthenticatorFunc = authentication.AuthenticatorFunc

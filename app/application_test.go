@@ -15,10 +15,21 @@ import (
 	"github.com/BekkkEvrika/pageSDK/authentication"
 	"github.com/BekkkEvrika/pageSDK/engine"
 	"github.com/BekkkEvrika/pageSDK/engine/formengine"
+	"github.com/BekkkEvrika/pageSDK/engine/tableengine"
 )
 
 type cliPage struct {
 	*formengine.FormEngine
+}
+
+type accessAnnotatedPage struct {
+	*formengine.FormEngine
+	group access.AccessGroup
+}
+
+type accessAnnotatedTablePage struct {
+	*tableengine.TableEngine
+	group access.AccessGroup
 }
 
 func TestPageAccessDeniedBeforeInit(t *testing.T) {
@@ -166,6 +177,33 @@ func (p *cliPage) Init(_ *engine.BuildContext) error {
 	return nil
 }
 
+func (p *accessAnnotatedPage) Init(_ *engine.BuildContext) error {
+	p.Text("client.name").Access(p.group, access.NoAccessReadonly)
+	p.Button("save").Access(p.group, access.NoAccessHidden)
+	return nil
+}
+
+func (p *accessAnnotatedTablePage) Init(_ *engine.BuildContext) error {
+	p.Table("clients").
+		Access(p.group, access.NoAccessHidden).
+		Columns(
+			p.Column("name").Header("Name").Access(p.group, access.NoAccessHidden),
+			p.Column("status").Header("Status").AddActionBuilder(
+				p.Action("approve", func(*tableengine.TableRuntimeContext) {}).Access(p.group, access.NoAccessHidden),
+			),
+		).
+		ToolbarActions(
+			p.Action("export", func(*tableengine.TableRuntimeContext) {}).Access(p.group, access.NoAccessHidden),
+		).
+		RowActions(
+			p.Action("delete", func(*tableengine.TableRuntimeContext) {}).Access(p.group, access.NoAccessRemove),
+		).
+		SelectedActions(
+			p.Action("archive", func(*tableengine.TableRuntimeContext) {}).Access(p.group, access.NoAccessHidden),
+		)
+	return nil
+}
+
 func registerCLIPage(a *Application) {
 	a.Manifest().Register("users.edit", func() engine.Page {
 		return &cliPage{FormEngine: &formengine.FormEngine{}}
@@ -195,6 +233,124 @@ func TestExecuteAccessGenerateValidateAndDryRun(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "dry-run: would sync") {
 		t.Fatalf("unexpected command output %q", output.String())
+	}
+}
+
+func TestAccessGenerateCollectsRegisteredGroupElements(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sfp.access.yaml")
+	group := access.AccessGroup{
+		Code:       "client.card.editing",
+		Name:       "Редактирование клиента",
+		Type:       access.AccessGroupUI,
+		ParentCode: "page.clients.card",
+		Enabled:    true,
+	}
+	a := New(Config{Module: "clients", AccessManifestPath: path})
+	if err := a.RegisterAccessGroup(access.AccessGroup{
+		Code:    "page.clients.card",
+		Name:    "Карточка клиента",
+		Type:    access.AccessGroupPage,
+		Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.RegisterAccessGroup(group); err != nil {
+		t.Fatal(err)
+	}
+	register := func(a *Application) {
+		a.Manifest().Register("clients.card", func() engine.Page {
+			return &accessAnnotatedPage{FormEngine: &formengine.FormEngine{}, group: group}
+		})
+	}
+	var output bytes.Buffer
+	if err := a.Execute(context.Background(), register, ":0", []string{"access", "generate"}, &output); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"client.card.editing",
+		"client.name",
+		"noAccessBehavior: readonly",
+		"save",
+		"noAccessBehavior: hidden",
+	} {
+		if !strings.Contains(string(data), expected) {
+			t.Fatalf("generated manifest missing %q:\n%s", expected, data)
+		}
+	}
+}
+
+func TestAccessGenerateCollectsTableElements(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sfp.access.yaml")
+	group := access.AccessGroup{
+		Code:       "client.table.actions",
+		Name:       "Действия таблицы клиентов",
+		Type:       access.AccessGroupAction,
+		ParentCode: "page.clients.list",
+		Enabled:    true,
+	}
+	a := New(Config{Module: "clients", AccessManifestPath: path})
+	if err := a.RegisterAccessGroup(access.AccessGroup{
+		Code:    "page.clients.list",
+		Name:    "Список клиентов",
+		Type:    access.AccessGroupPage,
+		Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.RegisterAccessGroup(group); err != nil {
+		t.Fatal(err)
+	}
+	register := func(a *Application) {
+		a.Manifest().Register("clients.list", func() engine.Page {
+			return &accessAnnotatedTablePage{TableEngine: &tableengine.TableEngine{}, group: group}
+		})
+	}
+	var output bytes.Buffer
+	if err := a.Execute(context.Background(), register, ":0", []string{"access", "generate"}, &output); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"table.clients.column.name",
+		"table.clients",
+		"table.clients.toolbar.export",
+		"table.clients.row.delete",
+		"table.clients.selected.archive",
+		"table.clients.column.status.action.approve",
+		"elementType: column",
+		"elementType: table",
+		"elementType: action",
+	} {
+		if !strings.Contains(string(data), expected) {
+			t.Fatalf("generated manifest missing %q:\n%s", expected, data)
+		}
+	}
+}
+
+func TestAccessGenerateRejectsUnknownAnnotatedGroup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sfp.access.yaml")
+	unknown := access.AccessGroup{
+		Code:    "client.card.edting",
+		Type:    access.AccessGroupUI,
+		Enabled: true,
+	}
+	a := New(Config{Module: "clients", AccessManifestPath: path})
+	register := func(a *Application) {
+		a.Manifest().Register("clients.card", func() engine.Page {
+			return &accessAnnotatedPage{FormEngine: &formengine.FormEngine{}, group: unknown}
+		})
+	}
+	var output bytes.Buffer
+	err := a.Execute(context.Background(), register, ":0", []string{"access", "generate"}, &output)
+	if err == nil || !strings.Contains(err.Error(), "unknown access group") {
+		t.Fatalf("expected unknown access group error, got %v", err)
 	}
 }
 

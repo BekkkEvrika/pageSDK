@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 
+	"github.com/BekkkEvrika/pageSDK/access"
 	"github.com/BekkkEvrika/pageSDK/engine"
 	"github.com/BekkkEvrika/pageSDK/table"
 )
@@ -178,6 +180,97 @@ func (t *TableEngine) AddSelectedAction(action table.ActionSchema) {
 func (t *TableEngine) DSL() any {
 	t.ensureDSL()
 	return t.dsl
+}
+
+func (t *TableEngine) AccessElements() []access.ElementBinding {
+	t.ensureDSL()
+	tableID := t.dsl.ID
+	if tableID == "" {
+		tableID = t.tableID
+	}
+	var result []access.ElementBinding
+	if t.dsl.AccessGroupCode != "" {
+		result = append(result, access.ElementBinding{
+			GroupCode: t.dsl.AccessGroupCode,
+			Element: access.AccessElement{
+				Code:             tableElementCode(firstNonEmpty(t.dsl.ElementCode, tableID)),
+				Name:             t.dsl.Title,
+				ElementType:      access.ElementTable,
+				NoAccessBehavior: access.NoAccessBehavior(t.dsl.NoAccessBehavior),
+			},
+		})
+	}
+	for _, column := range t.dsl.Columns {
+		if column.AccessGroupCode != "" {
+			result = append(result, access.ElementBinding{
+				GroupCode: column.AccessGroupCode,
+				Element: access.AccessElement{
+					Code:             tableElementCode(tableID, "column", firstNonEmpty(column.ElementCode, column.ID)),
+					Name:             column.Header,
+					ElementType:      access.ElementColumn,
+					NoAccessBehavior: access.NoAccessBehavior(column.NoAccessBehavior),
+				},
+			})
+		}
+		for _, action := range column.Actions {
+			if action.AccessGroupCode == "" {
+				continue
+			}
+			result = append(result, access.ElementBinding{
+				GroupCode: action.AccessGroupCode,
+				Element: access.AccessElement{
+					Code:             tableElementCode(tableID, "column", column.ID, "action", firstNonEmpty(action.ElementCode, action.ID)),
+					Name:             action.Label,
+					ElementType:      access.ElementAction,
+					NoAccessBehavior: access.NoAccessBehavior(action.NoAccessBehavior),
+				},
+			})
+		}
+	}
+	if t.dsl.Actions != nil {
+		result = append(result, tableActionElements(tableID, "toolbar", t.dsl.Actions.Toolbar)...)
+		result = append(result, tableActionElements(tableID, "row", t.dsl.Actions.Row)...)
+		result = append(result, tableActionElements(tableID, "selected", t.dsl.Actions.Selected)...)
+	}
+	return result
+}
+
+func tableActionElements(tableID, kind string, actions []table.ActionSchema) []access.ElementBinding {
+	result := make([]access.ElementBinding, 0, len(actions))
+	for _, action := range actions {
+		if action.AccessGroupCode == "" {
+			continue
+		}
+		result = append(result, access.ElementBinding{
+			GroupCode: action.AccessGroupCode,
+			Element: access.AccessElement{
+				Code:             tableElementCode(tableID, kind, firstNonEmpty(action.ElementCode, action.ID)),
+				Name:             action.Label,
+				ElementType:      access.ElementAction,
+				NoAccessBehavior: access.NoAccessBehavior(action.NoAccessBehavior),
+			},
+		})
+	}
+	return result
+}
+
+func tableElementCode(parts ...string) string {
+	values := []string{"table"}
+	for _, part := range parts {
+		if part != "" {
+			values = append(values, part)
+		}
+	}
+	return strings.Join(values, ".")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // ID возвращает identifier движка.

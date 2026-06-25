@@ -1,0 +1,154 @@
+module: sfp
+version: 1
+
+# This file is a generated/review manifest.
+# Do not use it as the primary manual configuration surface.
+#
+# Source of truth:
+# - access groups: central Go registry through app.RegisterAccessGroup(...)
+# - UI element bindings: page DSL controls through .Access(...)
+# - Keycloak roles/policies/user assignments: Keycloak admin
+
+accessGroups:
+  # Page groups. SDK создаёт их автоматически по зарегистрированным pages.
+  # Если пользователь не имеет access group страницы, SDK вернёт 403 до Init.
+  - code: page.clients
+    name: Клиенты
+    description: Доступ к списку клиентов
+    type: page
+    enabled: true
+
+  - code: page.clients.card
+    name: Карточка клиента
+    description: Доступ к странице карточки клиента
+    type: page
+    parentCode: page.clients
+    enabled: true
+
+  - code: page.clients.list
+    name: Список клиентов
+    description: Доступ к таблице клиентов
+    type: page
+    parentCode: page.clients
+    enabled: true
+
+  # UI group. Keycloak знает только code этой группы:
+  # client.card.viewing. Elements остаются только внутри SFP.
+  - code: client.card.viewing
+    name: Просмотр карточки клиента
+    description: Базовые блоки и поля просмотра клиента
+    type: ui_group
+    parentCode: page.clients.card
+    enabled: true
+    # Generated from controls annotated in Go DSL, for example:
+    # p.Text("client.name").Access(accessdefs.ClientCardViewing, pagesdk.NoAccessReadonly)
+    elements:
+      - code: client.name.input
+        name: Имя клиента
+        elementType: input
+        noAccessBehavior: readonly
+      - code: client.phone.input
+        name: Телефон клиента
+        elementType: input
+        noAccessBehavior: readonly
+
+  - code: client.card.editing
+    name: Редактирование карточки клиента
+    description: Поля и кнопки изменения данных клиента
+    type: ui_group
+    parentCode: page.clients.card
+    enabled: true
+    # Generated from controls annotated in Go DSL, for example:
+    # p.Button("save").Access(accessdefs.ClientCardEditing, pagesdk.NoAccessHidden)
+    elements:
+      - code: client.name.input
+        name: Имя клиента
+        elementType: input
+        noAccessBehavior: readonly
+      - code: client.phone.input
+        name: Телефон клиента
+        elementType: input
+        noAccessBehavior: readonly
+      - code: client.save.button
+        name: Сохранить
+        elementType: button
+        noAccessBehavior: hidden
+
+  - code: client.card.approve_actions
+    name: Подтверждение изменений клиента
+    description: Действия контролёра по карточке клиента
+    type: action_group
+    parentCode: page.clients.card
+    enabled: true
+    elements:
+      - code: client.approve.button
+        name: Подтвердить
+        elementType: button
+        noAccessBehavior: hidden
+      - code: client.reject.button
+        name: Отклонить
+        elementType: button
+        noAccessBehavior: hidden
+
+  - code: client.card.delete_actions
+    name: Удаление клиента
+    description: Опасные действия удаления клиента
+    type: action_group
+    parentCode: page.clients.card
+    enabled: true
+    elements:
+      - code: client.delete.button
+        name: Удалить клиента
+        elementType: button
+        noAccessBehavior: remove
+
+  - code: client.table.actions
+    name: Действия таблицы клиентов
+    description: Таблица, колонки и действия списка клиентов
+    type: action_group
+    parentCode: page.clients.list
+    enabled: true
+    # Generated from TableEngine DSL annotations, for example:
+    # p.Table("clients").Access(accessdefs.ClientTableActions, pagesdk.NoAccessHidden)
+    # p.Column("name").Access(accessdefs.ClientTableActions, pagesdk.NoAccessHidden)
+    # p.Action("export", handler).Access(accessdefs.ClientTableActions, pagesdk.NoAccessHidden)
+    elements:
+      - code: table.clients
+        name: Clients
+        elementType: table
+        noAccessBehavior: hidden
+      - code: table.clients.column.name
+        name: Name
+        elementType: column
+        noAccessBehavior: hidden
+      - code: table.clients.toolbar.export
+        name: Export
+        elementType: action
+        noAccessBehavior: hidden
+      - code: table.clients.row.delete
+        name: Delete
+        elementType: action
+        noAccessBehavior: remove
+      - code: table.clients.selected.archive
+        name: Archive
+        elementType: action
+        noAccessBehavior: hidden
+      - code: table.clients.column.status.action.approve
+        name: Approve
+        elementType: action
+        noAccessBehavior: hidden
+
+# Роли, группы пользователей, policies и назначение ролей создаёт администратор
+# в Keycloak. SFP SDK не создаёт роли и не назначает их пользователям.
+#
+# Keycloak после authorization flow выдаёт RPT, где permissions указывают на
+# access group resources, например:
+#
+# authorization.permissions:
+#   - resource_set_name: page.clients.card
+#   - resource_set_name: client.card.editing
+
+# Legacy resources сохраняются для совместимости и diff старых event/table keys.
+# В Keycloak по новой модели они не отправляются.
+resources: []
+stale: []

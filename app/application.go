@@ -173,12 +173,20 @@ func (a *Application) Execute(ctx context.Context, initFn InitFunc, addr string,
 			return err
 		}
 		accessGroups := append(pageGroups, a.access.All()...)
+		bindings, err := access.CollectElementBindings(a.manifest)
+		if err != nil {
+			return err
+		}
+		accessGroups, err = access.MergeAccessGroupElements(accessGroups, bindings)
+		if err != nil {
+			return err
+		}
 		generated, err := access.GenerateAccess(path, a.config.Module, resources, accessGroups)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(output, "generated %s (%d access groups, %d resources, %d stale, %d permission groups)\n",
-			path, len(generated.AccessGroups), len(generated.Resources), len(generated.Stale), len(generated.PermissionGroups))
+		fmt.Fprintf(output, "generated %s (%d access groups, %d resources, %d stale)\n",
+			path, len(generated.AccessGroups), len(generated.Resources), len(generated.Stale))
 		return nil
 	case "validate":
 		value, err := access.Read(path)
@@ -216,8 +224,7 @@ func (a *Application) Execute(ctx context.Context, initFn InitFunc, addr string,
 			return err
 		}
 		if *dryRun {
-			fmt.Fprintf(output, "dry-run: would sync %d resources and %d permission groups\n",
-				len(value.Resources), len(value.PermissionGroups))
+			fmt.Fprintf(output, "dry-run: would sync %d access groups\n", len(value.AccessGroups))
 		}
 		if !*dryRun && missingKeycloakConfig(a.config) != "" {
 			return fmt.Errorf("access sync: missing Keycloak config: %s", missingKeycloakConfig(a.config))
