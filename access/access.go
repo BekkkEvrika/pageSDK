@@ -159,22 +159,9 @@ func (r *Registry) Register(group AccessGroup) error {
 	if strings.TrimSpace(group.Code) == "" {
 		return errors.New("access group code must not be empty")
 	}
-	if group.Type == "" {
-		return errors.New("access group type must not be empty")
-	}
-	if !group.Enabled {
-		group.Enabled = true
-	}
+	group = NormalizeAccessGroup(group)
 	for i := range group.Elements {
-		if strings.TrimSpace(group.Elements[i].Code) == "" {
-			return fmt.Errorf("access group %q has element with empty code", group.Code)
-		}
-		if group.Elements[i].NoAccessBehavior == "" {
-			group.Elements[i].NoAccessBehavior = NoAccessHidden
-		}
-		if group.Elements[i].ElementType == "" {
-			group.Elements[i].ElementType = ElementCustom
-		}
+		group.Elements[i] = NormalizeAccessElement(group.Elements[i])
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -183,6 +170,30 @@ func (r *Registry) Register(group AccessGroup) error {
 	}
 	r.groups[group.Code] = group
 	return nil
+}
+
+func NormalizeAccessGroup(group AccessGroup) AccessGroup {
+	if group.Type == "" {
+		if strings.HasPrefix(group.Code, "page.") {
+			group.Type = AccessGroupPage
+		} else {
+			group.Type = AccessGroupUI
+		}
+	}
+	if !group.Enabled {
+		group.Enabled = true
+	}
+	return group
+}
+
+func NormalizeAccessElement(element AccessElement) AccessElement {
+	if element.NoAccessBehavior == "" {
+		element.NoAccessBehavior = NoAccessHidden
+	}
+	if element.ElementType == "" {
+		element.ElementType = ElementCustom
+	}
+	return element
 }
 
 func (r *Registry) All() []AccessGroup {

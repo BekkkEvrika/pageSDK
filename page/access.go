@@ -8,60 +8,36 @@ type AccessRegistry interface {
 
 var (
 	UsersEditViewing = access.AccessGroup{
-		Code:       "users.edit.viewing",
-		Name:       "Просмотр формы пользователя",
-		Type:       access.AccessGroupUI,
-		ParentCode: access.PageAccessGroupCode("users.edit"),
-		Enabled:    true,
+		Code: "users.edit.viewing",
+		Name: "Просмотр формы пользователя",
 	}
 	UsersEditEditing = access.AccessGroup{
-		Code:       "users.edit.editing",
-		Name:       "Редактирование пользователя",
-		Type:       access.AccessGroupUI,
-		ParentCode: access.PageAccessGroupCode("users.edit"),
-		Enabled:    true,
+		Code: "users.edit.editing",
+		Name: "Редактирование пользователя",
 	}
 	UsersEditPickerActions = access.AccessGroup{
-		Code:       "users.edit.picker_actions",
-		Name:       "Выбор пользователя из диалога",
-		Type:       access.AccessGroupAction,
-		ParentCode: access.PageAccessGroupCode("users.edit"),
-		Enabled:    true,
+		Code: "users.edit.picker_actions",
+		Name: "Выбор пользователя из диалога",
 	}
 	UsersListViewing = access.AccessGroup{
-		Code:       "users.list.viewing",
-		Name:       "Просмотр списка пользователей",
-		Type:       access.AccessGroupUI,
-		ParentCode: access.PageAccessGroupCode("users.list"),
-		Enabled:    true,
+		Code: "users.list.viewing",
+		Name: "Просмотр списка пользователей",
 	}
 	UsersListActions = access.AccessGroup{
-		Code:       "users.list.actions",
-		Name:       "Действия списка пользователей",
-		Type:       access.AccessGroupAction,
-		ParentCode: access.PageAccessGroupCode("users.list"),
-		Enabled:    true,
+		Code: "users.list.actions",
+		Name: "Действия списка пользователей",
 	}
 	UsersPickerActions = access.AccessGroup{
-		Code:       "users.picker.actions",
-		Name:       "Действия выбора пользователя",
-		Type:       access.AccessGroupAction,
-		ParentCode: access.PageAccessGroupCode("users.picker"),
-		Enabled:    true,
+		Code: "users.picker.actions",
+		Name: "Действия выбора пользователя",
 	}
 	AdminRolesViewing = access.AccessGroup{
-		Code:       "admin.roles.viewing",
-		Name:       "Просмотр ролей администратора",
-		Type:       access.AccessGroupUI,
-		ParentCode: access.PageAccessGroupCode("admin.roles"),
-		Enabled:    true,
+		Code: "admin.roles.viewing",
+		Name: "Просмотр ролей администратора",
 	}
 	CalculatorUsage = access.AccessGroup{
-		Code:       "calculator.usage",
-		Name:       "Использование калькулятора",
-		Type:       access.AccessGroupAction,
-		ParentCode: access.PageAccessGroupCode("calculator"),
-		Enabled:    true,
+		Code: "calculator.usage",
+		Name: "Использование калькулятора",
 	}
 )
 

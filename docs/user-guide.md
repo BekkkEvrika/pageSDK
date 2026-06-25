@@ -151,17 +151,18 @@ UI/action groups регистрируются в центральном Go regis
 
 ```go
 var ClientCardEditing = pagesdk.AccessGroup{
-	Code:       "client.card.editing",
-	Name:       "Редактирование карточки клиента",
-	Type:       pagesdk.AccessGroupUI,
-	ParentCode: "page.clients.card",
-	Enabled:    true,
+	Code: "client.card.editing",
+	Name: "Редактирование карточки клиента",
 }
 
 func RegisterAccess(app *pagesdk.Application) {
 	_ = app.RegisterAccessGroup(ClientCardEditing)
 }
 ```
+
+`Type`, `Enabled` и `ParentCode` можно не указывать в коде примера:
+SDK заполнит `Type` как `ui_group` и `Enabled: true`. `ParentCode` нужен
+только если вы хотите явно отразить иерархию access groups в manifest.
 
 Pages только используют уже объявленные группы:
 

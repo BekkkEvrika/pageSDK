@@ -7,12 +7,48 @@ import (
 	inputs "github.com/BekkkEvrika/pageSDK/form"
 )
 
+var (
+	usersEditViewing = pagesdk.AccessGroup{
+		Code: "example.users.edit.viewing",
+		Name: "Users edit viewing",
+	}
+	usersEditEditing = pagesdk.AccessGroup{
+		Code: "example.users.edit.editing",
+		Name: "Users edit editing",
+	}
+	comboSelection = pagesdk.AccessGroup{
+		Code: "example.controls.combos.selection",
+		Name: "Combo selection controls",
+	}
+	comboSubmit = pagesdk.AccessGroup{
+		Code: "example.controls.combos.submit",
+		Name: "Combo submit action",
+	}
+)
+
 func main() {
 	application := pagesdk.New()
+	if err := registerAccessGroups(application); err != nil {
+		panic(err)
+	}
 
 	if err := application.Run(projectInitial, ":8080"); err != nil {
 		panic(err)
 	}
+}
+
+func registerAccessGroups(app *pagesdk.Application) error {
+	for _, group := range []pagesdk.AccessGroup{
+		usersEditViewing,
+		usersEditEditing,
+		comboSelection,
+		comboSubmit,
+	} {
+		if err := app.RegisterAccessGroup(group); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func projectInitial(a *pagesdk.Application) {
@@ -34,15 +70,18 @@ func (p *UsersEditPage) Init(ctx *engine.BuildContext) error {
 	name := p.Text("name")
 	name.SetLabel("User name")
 	name.SetPlaceholder("Enter user name")
+	name.Access(usersEditEditing, pagesdk.NoAccessReadonly)
 	name.SetOnChange(onNameChange)
 
 	email := p.Text("email")
 	email.SetLabel("Email")
 	email.SetPlaceholder("user@example.com")
+	email.Access(usersEditEditing, pagesdk.NoAccessReadonly)
 
 	status := p.Text("status")
 	status.SetLabel("Status")
 	status.SetReadOnly(true)
+	status.Access(usersEditViewing, pagesdk.NoAccessReadonly)
 
 	p.Field(inputs.Input{Id: "nameChanged", Type: inputs.InputTypeCheckbox})
 	changed, err := p.GetCheckboxById("nameChanged")
@@ -51,10 +90,12 @@ func (p *UsersEditPage) Init(ctx *engine.BuildContext) error {
 	}
 	changed.SetLabel("Name changed")
 	changed.SetReadOnly(true)
+	changed.Access(usersEditViewing, pagesdk.NoAccessDisabled)
 
 	save := p.Button("save")
 	save.SetLabel("Save")
 	save.SetVariant("primary")
+	save.Access(usersEditEditing, pagesdk.NoAccessHidden)
 	save.SetOnClick(onSave)
 
 	return nil
@@ -97,6 +138,7 @@ func (p *ComboExamplePage) Init(ctx *engine.BuildContext) error {
 		Placeholder("Choose a country").
 		Options(countryOptions()).
 		DefaultValue(country).
+		Access(comboSelection, pagesdk.NoAccessDisabled).
 		OnChange(onCountryChange)
 
 	p.Select("city").
@@ -104,6 +146,7 @@ func (p *ComboExamplePage) Init(ctx *engine.BuildContext) error {
 		Placeholder("Choose a city").
 		Options(cityOptions(country)).
 		DefaultValue(ctx.Params["city"]).
+		Access(comboSelection, pagesdk.NoAccessDisabled).
 		OnChange(onCityChange)
 
 	p.Select("language").
@@ -114,15 +157,18 @@ func (p *ComboExamplePage) Init(ctx *engine.BuildContext) error {
 			{ID: "en", Text: "English"},
 		}).
 		DefaultValue("ru").
+		Access(comboSelection, pagesdk.NoAccessDisabled).
 		OnChange(onLanguageChange)
 
 	p.Text("selection").
 		Label("Current selection").
-		ReadOnly(true)
+		ReadOnly(true).
+		Access(comboSelection, pagesdk.NoAccessReadonly)
 
 	p.Button("submit").
 		Label("Submit").
 		Variant("primary").
+		Access(comboSubmit, pagesdk.NoAccessHidden).
 		OnClick(onComboSubmit)
 
 	return nil

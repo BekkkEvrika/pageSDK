@@ -172,10 +172,6 @@ Access group регистрируется один раз в central registry:
 _ = app.RegisterAccessGroup(pagesdk.AccessGroup{
 	Code:        "client.card.editing",
 	Name:        "Редактирование карточки клиента",
-	Description: "Поля и действия редактирования клиента",
-	Type:        pagesdk.AccessGroupUI,
-	ParentCode:  "page.clients.card",
-	Enabled:     true,
 })
 ```
 
