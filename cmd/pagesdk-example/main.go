@@ -1,11 +1,17 @@
 package main
 
 import (
+	"os"
+	"strings"
+	"time"
+
 	pagesdk "github.com/BekkkEvrika/pageSDK"
 	"github.com/BekkkEvrika/pageSDK/engine"
 	"github.com/BekkkEvrika/pageSDK/engine/formengine"
 	inputs "github.com/BekkkEvrika/pageSDK/form"
 )
+
+const defaultAddr = ":8080"
 
 var (
 	usersEditViewing = pagesdk.AccessGroup{
@@ -27,14 +33,54 @@ var (
 )
 
 func main() {
-	application := pagesdk.New()
+	config := keycloakConfigFromEnv()
+	application := pagesdk.New(config)
+	if config.Authenticator != nil {
+		application.UseRPTAccessAuthorizer()
+	}
 	if err := registerAccessGroups(application); err != nil {
 		panic(err)
 	}
 
-	if err := application.Run(projectInitial, ":8080"); err != nil {
+	if err := application.Run(projectInitial, env("HTTP_ADDR", defaultAddr)); err != nil {
 		panic(err)
 	}
+}
+
+func keycloakConfigFromEnv() pagesdk.Config {
+	keycloakURL := os.Getenv("KEYCLOAK_BASE_URL")
+	realm := os.Getenv("KEYCLOAK_REALM")
+	clientID := os.Getenv("KEYCLOAK_CLIENT_ID")
+
+	config := pagesdk.Config{
+		Module:              os.Getenv("SFP_MODULE"),
+		KeycloakURL:         keycloakURL,
+		Realm:               realm,
+		ClientID:            clientID,
+		ClientSecret:        os.Getenv("KEYCLOAK_CLIENT_SECRET"),
+		KeycloakSyncEnabled: strings.EqualFold(os.Getenv("KEYCLOAK_SYNC_ENABLED"), "true"),
+		AccessManifestPath:  env("ACCESS_MANIFEST_PATH", "sfp.access.yaml"),
+		AccessCacheTTL:      30 * time.Second,
+	}
+
+	if strings.EqualFold(os.Getenv("KEYCLOAK_AUTH_ENABLED"), "true") {
+		config.Authenticator = pagesdk.NewKeycloakJWTAuthenticator(pagesdk.KeycloakJWTConfig{
+			KeycloakURL:     keycloakURL,
+			Realm:           realm,
+			Audience:        env("KEYCLOAK_AUDIENCE", clientID),
+			AuthorizedParty: os.Getenv("KEYCLOAK_AUTHORIZED_PARTY"),
+			ClockSkew:       30 * time.Second,
+		})
+	}
+	return config
+}
+
+func env(key, fallback string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func registerAccessGroups(app *pagesdk.Application) error {

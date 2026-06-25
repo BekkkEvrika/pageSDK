@@ -55,6 +55,9 @@ type Config struct {
 
 // New создаёт новый Application.
 func New(config ...Config) *Application {
+	if os.Getenv(gin.EnvGinMode) == "" {
+		gin.SetMode(gin.ReleaseMode)
+	}
 	a := &Application{
 		manifest: manifest.New(),
 		router:   gin.New(),

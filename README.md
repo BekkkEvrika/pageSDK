@@ -137,6 +137,23 @@ routes требуют `Authorization: Bearer <token>`. Проверенные JW
 ему известен `pageInstanceId`. JWT проверяется заново на каждом запросе;
 сам access token в page instance не сохраняется.
 
+`cmd/pagesdk-example` читает Keycloak-настройки из env. Runtime auth включается
+явно, чтобы пример можно было запускать локально без Keycloak:
+
+```bash
+export KEYCLOAK_BASE_URL=http://localhost:8081
+export KEYCLOAK_REALM=sfp
+export KEYCLOAK_CLIENT_ID=gateway
+export KEYCLOAK_CLIENT_SECRET=...
+export KEYCLOAK_AUTH_ENABLED=true
+export KEYCLOAK_AUDIENCE=gateway
+
+go run ./cmd/pagesdk-example serve
+```
+
+Для `access sync` используются те же `KEYCLOAK_BASE_URL`,
+`KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID`, `KEYCLOAK_CLIENT_SECRET`.
+
 ## UI access manifest
 
 После перехода entrypoint с `Bootstrap` на `Run` собранный сервис поддерживает:
