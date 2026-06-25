@@ -55,12 +55,8 @@ type Config struct {
 
 // New создаёт новый Application.
 func New(config ...Config) *Application {
-	if os.Getenv(gin.EnvGinMode) == "" {
-		gin.SetMode(gin.ReleaseMode)
-	}
 	a := &Application{
 		manifest: manifest.New(),
-		router:   gin.New(),
 		access:   access.NewRegistry(),
 	}
 	if len(config) > 0 {
@@ -298,6 +294,7 @@ func printDiffSection(output io.Writer, title string, values []string) {
 // registerRoutes итерирует manifest и получает route metadata из sample Engine.
 // Render creates a Page instance; events reuse that stored Page.
 func (a *Application) registerRoutes() {
+	a.ensureRouter()
 	a.router.Use(logging.LogMiddleware)
 	for _, entry := range a.manifest.All() {
 		entry := entry // capture
@@ -315,6 +312,12 @@ func (a *Application) registerRoutes() {
 			engine.RoutePath(a.config.Module, "/page/"+entry.Key+"/instance"),
 			a.deletePageInstance(entry.Key),
 		)
+	}
+}
+
+func (a *Application) ensureRouter() {
+	if a.router == nil {
+		a.router = gin.New()
 	}
 }
 
