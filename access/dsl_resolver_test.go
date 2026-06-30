@@ -38,14 +38,17 @@ func TestDSLPermissionResolverAppliesNoAccessBehavior(t *testing.T) {
 		t.Fatalf("expected removed field to disappear, got %#v", fields)
 	}
 	name := fields[0].(map[string]any)
-	if name["readOnly"] != true || name["readonly"] != true {
+	if name["readOnly"] != true {
 		t.Fatalf("expected readonly behavior, got %#v", name)
+	}
+	if name["readonly"] != nil {
+		t.Fatalf("lowercase readonly leaked to field: %#v", name)
 	}
 	if name["accessGroupCode"] != nil || name["noAccessBehavior"] != nil {
 		t.Fatalf("access metadata leaked to denied field: %#v", name)
 	}
 	view := fields[1].(map[string]any)
-	if view["hidden"] == true || view["visibility"] == false || view["readOnly"] == true || view["readonly"] == true || view["disabled"] == true {
+	if view["hidden"] == true || view["visibility"] == false || view["readOnly"] == true || view["readonly"] != nil || view["disabled"] == true {
 		t.Fatalf("allowed field was modified: %#v", view)
 	}
 	if view["accessGroupCode"] != nil || view["noAccessBehavior"] != nil {

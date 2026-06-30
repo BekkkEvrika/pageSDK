@@ -64,7 +64,6 @@ func (r DSLPermissionResolver) applyNode(ctx context.Context, userID string, use
 						return nil, false, nil
 					case NoAccessReadonly:
 						value["readOnly"] = true
-						value["readonly"] = true
 					case NoAccessDisabled:
 						value["disabled"] = true
 					default:
