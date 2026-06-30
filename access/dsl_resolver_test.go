@@ -61,6 +61,7 @@ func TestDSLPermissionResolverAppliesHiddenVisibility(t *testing.T) {
 		"fields": []any{
 			map[string]any{
 				"id":               "save",
+				"type":             "button",
 				"accessGroupCode":  "client.card.editing",
 				"noAccessBehavior": "hidden",
 			},
@@ -72,11 +73,42 @@ func TestDSLPermissionResolverAppliesHiddenVisibility(t *testing.T) {
 	}
 	fields := result.(map[string]any)["fields"].([]any)
 	save := fields[0].(map[string]any)
-	if save["hidden"] != true || save["visibility"] != false {
-		t.Fatalf("expected hidden behavior to hide by both keys, got %#v", save)
+	if save["visibility"] != false {
+		t.Fatalf("expected form hidden behavior to set visibility=false, got %#v", save)
+	}
+	if save["hidden"] == true {
+		t.Fatalf("form hidden behavior should not add hidden field, got %#v", save)
 	}
 	if save["accessGroupCode"] != nil || save["noAccessBehavior"] != nil {
 		t.Fatalf("access metadata leaked to hidden field: %#v", save)
+	}
+}
+
+func TestDSLPermissionResolverAppliesHiddenForSchemaNode(t *testing.T) {
+	resolver := DSLPermissionResolver{
+		Authorizer: StaticAuthorizer{Groups: map[string][]string{}},
+	}
+	dsl := map[string]any{
+		"columns": []any{
+			map[string]any{
+				"id":               "name",
+				"header":           "Name",
+				"accessGroupCode":  "client.table.viewing",
+				"noAccessBehavior": "hidden",
+			},
+		},
+	}
+	result, err := resolver.Apply(context.Background(), "user-1", nil, dsl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	columns := result.(map[string]any)["columns"].([]any)
+	name := columns[0].(map[string]any)
+	if name["hidden"] != true {
+		t.Fatalf("expected schema hidden behavior to set hidden=true, got %#v", name)
+	}
+	if name["visibility"] == false {
+		t.Fatalf("schema hidden behavior should not add visibility=false, got %#v", name)
 	}
 }
 
@@ -86,6 +118,7 @@ func TestDSLPermissionResolverStripsAccessMetadataWithoutAuthorizer(t *testing.T
 		"fields": []any{
 			map[string]any{
 				"id":               "save",
+				"type":             "button",
 				"accessGroupCode":  "client.card.editing",
 				"noAccessBehavior": "hidden",
 			},

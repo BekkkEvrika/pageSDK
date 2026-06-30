@@ -68,8 +68,7 @@ func (r DSLPermissionResolver) applyNode(ctx context.Context, userID string, use
 					case NoAccessDisabled:
 						value["disabled"] = true
 					default:
-						value["hidden"] = true
-						value["visibility"] = false
+						r.applyHidden(value)
 					}
 				}
 			}
@@ -91,6 +90,14 @@ func (r DSLPermissionResolver) applyNode(ctx context.Context, userID string, use
 	default:
 		return node, true, nil
 	}
+}
+
+func (r DSLPermissionResolver) applyHidden(value map[string]any) {
+	if _, ok := value["type"].(string); ok {
+		value["visibility"] = false
+		return
+	}
+	value["hidden"] = true
 }
 
 func NoAccessBehaviorFromAny(value any) NoAccessBehavior {
