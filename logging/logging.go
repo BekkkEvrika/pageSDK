@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
 
@@ -66,6 +67,9 @@ func logAuthorizationHeader(reqID string, request *http.Request) {
 }
 
 func maskAuthorizationHeader(header string) string {
+	if strings.EqualFold(os.Getenv("SFP_LOG_FULL_AUTH_TOKEN"), "true") {
+		return header
+	}
 	parts := strings.Fields(header)
 	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
 		return "<present non-bearer>"
