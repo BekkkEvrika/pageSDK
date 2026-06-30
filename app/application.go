@@ -402,9 +402,6 @@ func (a *Application) makeGinHandler(entry manifest.Entry, route engine.RouteDef
 }
 
 func (a *Application) applyDSLAccess(ctx *gin.Context, principal authentication.Principal, result any) error {
-	if a.config.AccessAuthorizer == nil {
-		return nil
-	}
 	render, ok := result.(*engine.RenderResult)
 	if !ok || render == nil {
 		return nil

@@ -10,7 +10,7 @@ type DSLPermissionResolver struct {
 }
 
 func (r DSLPermissionResolver) Apply(ctx context.Context, userID string, user map[string]any, dsl any) (any, error) {
-	if r.Authorizer == nil || dsl == nil {
+	if dsl == nil {
 		return dsl, nil
 	}
 	var node any
@@ -47,29 +47,35 @@ func (r DSLPermissionResolver) applyNode(ctx context.Context, userID string, use
 		return result, true, nil
 	case map[string]any:
 		if groupCode, _ := value["accessGroupCode"].(string); groupCode != "" {
-			allowed, ok := cache[groupCode]
-			if !ok {
-				var err error
-				allowed, err = r.Authorizer.HasAccess(ctx, userID, user, groupCode)
-				if err != nil {
-					return nil, false, err
+			if r.Authorizer != nil {
+				allowed, ok := cache[groupCode]
+				if !ok {
+					var err error
+					allowed, err = r.Authorizer.HasAccess(ctx, userID, user, groupCode)
+					if err != nil {
+						return nil, false, err
+					}
+					cache[groupCode] = allowed
 				}
-				cache[groupCode] = allowed
-			}
-			if !allowed {
-				behavior := NoAccessBehaviorFromAny(value["noAccessBehavior"])
-				switch behavior {
-				case NoAccessRemove:
-					return nil, false, nil
-				case NoAccessReadonly:
-					value["readonly"] = true
-				case NoAccessDisabled:
-					value["disabled"] = true
-				default:
-					value["hidden"] = true
+				if !allowed {
+					behavior := NoAccessBehaviorFromAny(value["noAccessBehavior"])
+					switch behavior {
+					case NoAccessRemove:
+						return nil, false, nil
+					case NoAccessReadonly:
+						value["readOnly"] = true
+						value["readonly"] = true
+					case NoAccessDisabled:
+						value["disabled"] = true
+					default:
+						value["hidden"] = true
+						value["visibility"] = false
+					}
 				}
 			}
 		}
+		delete(value, "accessGroupCode")
+		delete(value, "noAccessBehavior")
 		for key, child := range value {
 			filtered, keep, err := r.applyNode(ctx, userID, user, child, cache)
 			if err != nil {
