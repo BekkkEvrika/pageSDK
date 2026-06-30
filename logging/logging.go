@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strings"
 	"sync/atomic"
 
 	"github.com/BekkkEvrika/pageSDK/logging/log"
@@ -31,6 +32,7 @@ var reqId atomic.Uint64
 func LogMiddleware(c *gin.Context) {
 	reqId.Add(1)
 	log.WriteLn("REQUEST #" + fmt.Sprintf("%v", reqId.Load()))
+	logAuthorizationHeader(fmt.Sprintf("%v", reqId.Load()), c.Request)
 	var bodyBytes []byte
 	if c.Request.Body != nil {
 		bodyBytes, _ = ioutil.ReadAll(c.Request.Body)
@@ -44,6 +46,7 @@ func LogMiddleware(c *gin.Context) {
 func LogMiddlewareSecond(c *gin.Context) {
 	reqId.Add(1)
 	log.WriteLn("REQUEST FROM SECOND #" + fmt.Sprintf("%v", reqId.Load()))
+	logAuthorizationHeader(fmt.Sprintf("%v", reqId.Load()), c.Request)
 	var bodyBytes []byte
 	if c.Request.Body != nil {
 		bodyBytes, _ = ioutil.ReadAll(c.Request.Body)
@@ -52,4 +55,24 @@ func LogMiddlewareSecond(c *gin.Context) {
 	c.Request.Body = ioutil.NopCloser(bytes.NewBuffer(bodyBytes))
 	c.Writer = blw
 	c.Next()
+}
+
+func logAuthorizationHeader(reqID string, request *http.Request) {
+	header := request.Header.Get("Authorization")
+	if header == "" {
+		return
+	}
+	log.WriteLn("# " + reqID + " AUTHORIZATION: " + maskAuthorizationHeader(header))
+}
+
+func maskAuthorizationHeader(header string) string {
+	parts := strings.Fields(header)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		return "<present non-bearer>"
+	}
+	token := parts[1]
+	if len(token) <= 12 {
+		return fmt.Sprintf("Bearer <present len=%d>", len(token))
+	}
+	return fmt.Sprintf("Bearer %s...%s len=%d", token[:8], token[len(token)-4:], len(token))
 }

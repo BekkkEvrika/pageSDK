@@ -15,6 +15,7 @@ import (
 	"github.com/BekkkEvrika/pageSDK/authentication"
 	"github.com/BekkkEvrika/pageSDK/engine"
 	"github.com/BekkkEvrika/pageSDK/logging"
+	sdklog "github.com/BekkkEvrika/pageSDK/logging/log"
 	"github.com/BekkkEvrika/pageSDK/manifest"
 	"github.com/gin-gonic/gin"
 )
@@ -456,17 +457,38 @@ func (a *Application) authenticate(ctx *gin.Context) (authentication.Principal, 
 	}
 	token, err := bearerToken(ctx.GetHeader("Authorization"))
 	if err != nil {
+		logAuthFailure(ctx, err)
 		ctx.Header("WWW-Authenticate", "Bearer")
 		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return authentication.Principal{}, false
 	}
 	principal, err := a.config.Authenticator.Authenticate(ctx.Request.Context(), token)
-	if err != nil || principal.ID == "" || principal.User == nil {
+	if err != nil {
+		logAuthFailure(ctx, err)
+		ctx.Header("WWW-Authenticate", "Bearer")
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return authentication.Principal{}, false
+	}
+	if principal.ID == "" {
+		logAuthFailure(ctx, errors.New("authenticator returned empty principal ID"))
+		ctx.Header("WWW-Authenticate", "Bearer")
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return authentication.Principal{}, false
+	}
+	if principal.User == nil {
+		logAuthFailure(ctx, errors.New("authenticator returned nil user claims"))
 		ctx.Header("WWW-Authenticate", "Bearer")
 		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return authentication.Principal{}, false
 	}
 	return principal, true
+}
+
+func logAuthFailure(ctx *gin.Context, err error) {
+	if err == nil {
+		return
+	}
+	sdklog.WriteLn("AUTH FAILED " + ctx.Request.Method + " " + ctx.Request.URL.String() + ": " + err.Error())
 }
 
 func bearerToken(header string) (string, error) {
