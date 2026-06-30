@@ -127,6 +127,12 @@ func (a *Application) UseRPTAccessAuthorizer(ttl ...time.Duration) {
 	if len(ttl) > 0 {
 		cacheTTL = ttl[0]
 	}
+	if a.config.KeycloakURL != "" && a.config.Realm != "" && a.config.ClientID != "" {
+		config := a.accessConfig()
+		config.CacheTTL = cacheTTL
+		a.config.AccessAuthorizer = access.NewKeycloakUMAAccessAuthorizer(config)
+		return
+	}
 	a.config.AccessAuthorizer = access.NewCachedAuthorizer(access.RPTClaimSource{}, cacheTTL)
 }
 
@@ -407,8 +413,9 @@ func (a *Application) applyDSLAccess(ctx *gin.Context, principal authentication.
 	if !ok || render == nil {
 		return nil
 	}
+	requestContext := access.WithBearerToken(ctx.Request.Context(), principal.Token)
 	filtered, err := (access.DSLPermissionResolver{Authorizer: a.config.AccessAuthorizer}).
-		Apply(ctx.Request.Context(), principal.ID, principal.User, render.DSL)
+		Apply(requestContext, principal.ID, principal.User, render.DSL)
 	if err != nil {
 		return err
 	}
@@ -420,7 +427,8 @@ func (a *Application) authorizeAccessGroup(ctx *gin.Context, principal authentic
 	if a.config.AccessAuthorizer == nil {
 		return true
 	}
-	allowed, err := a.config.AccessAuthorizer.HasAccess(ctx.Request.Context(), principal.ID, principal.User, code)
+	requestContext := access.WithBearerToken(ctx.Request.Context(), principal.Token)
+	allowed, err := a.config.AccessAuthorizer.HasAccess(requestContext, principal.ID, principal.User, code)
 	if err != nil {
 		ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": "access check failed"})
 		return false
@@ -481,6 +489,7 @@ func (a *Application) authenticate(ctx *gin.Context) (authentication.Principal, 
 		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return authentication.Principal{}, false
 	}
+	principal.Token = token
 	return principal, true
 }
 

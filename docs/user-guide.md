@@ -1533,6 +1533,19 @@ func (p *UsersPage) onReload(ctx *tableengine.TableRuntimeContext) {
 - event без `.Access(...)` остаётся доступным после обычных проверок JWT,
   page access и owner `pageInstanceId`.
 
+`UseRPTAccessAuthorizer()` работает в два шага. Сначала SDK читает resources из
+`authorization.permissions` текущего RPT. Если нужной access group там нет, но
+настроены `KeycloakURL`, `Realm` и `ClientID`, SDK сам отправляет UMA decision
+request в Keycloak:
+
+```text
+permission={accessGroupCode}#access
+response_mode=decision
+```
+
+Поэтому gateway может выдавать RPT только для page access, а element-level
+доступы SDK проверит самостоятельно.
+
 Handler всё равно должен проверять бизнес-правила: tenant, ownership, row ID,
 актуальное состояние entity и другие данные, которые нельзя доверять frontend
 payload.

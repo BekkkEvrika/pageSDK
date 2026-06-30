@@ -25,8 +25,9 @@ var ErrUnauthenticated = errors.New("authentication failed")
 type Principal struct {
 	// ID is the stable owner identity used for page instances.
 	// The built-in JWT authenticator uses "{issuer}|{subject}".
-	ID   string
-	User engine.User
+	ID    string
+	User  engine.User
+	Token string
 }
 
 // Authenticator verifies a bearer token and returns trusted user claims.

@@ -6,6 +6,20 @@ import (
 	"time"
 )
 
+type bearerTokenContextKey struct{}
+
+func WithBearerToken(ctx context.Context, token string) context.Context {
+	if token == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, bearerTokenContextKey{}, token)
+}
+
+func bearerTokenFromContext(ctx context.Context) string {
+	token, _ := ctx.Value(bearerTokenContextKey{}).(string)
+	return token
+}
+
 type AccessGroupSource interface {
 	UserAccessGroups(ctx context.Context, userID string, user map[string]any) ([]string, error)
 }

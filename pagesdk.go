@@ -32,6 +32,7 @@ type AccessAuthorizer = access.AccessAuthorizer
 type CachedAuthorizer = access.CachedAuthorizer
 type RPTClaimSource = access.RPTClaimSource
 type JWTAuthorizationClaimSource = access.JWTAuthorizationClaimSource
+type KeycloakUMAAccessAuthorizer = access.KeycloakUMAAccessAuthorizer
 type KeycloakUMAProvider = access.KeycloakUMAProvider
 type Authenticator = authentication.Authenticator
 type AuthenticatorFunc = authentication.AuthenticatorFunc
@@ -103,6 +104,10 @@ func NewKeycloakJWTAuthenticator(config KeycloakJWTConfig) *KeycloakJWTAuthentic
 
 func NewKeycloakUMAProvider(config AccessConfig) *KeycloakUMAProvider {
 	return access.NewKeycloakUMAProvider(config)
+}
+
+func NewKeycloakUMAAccessAuthorizer(config AccessConfig) *KeycloakUMAAccessAuthorizer {
+	return access.NewKeycloakUMAAccessAuthorizer(config)
 }
 
 func NewCachedAuthorizer(source access.AccessGroupSource, ttl time.Duration) *CachedAuthorizer {
