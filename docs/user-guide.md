@@ -1082,11 +1082,9 @@ func (p *UsersPage) Init(ctx *engine.BuildContext) error {
 
 ```go
 Title(string)
-RequestURL(string)
 RowIDKey(string)
 EmptyMessage(string)
 SubRowsKey(string)
-SubRowsRequestURL(string)
 Columns(...*ColumnBuilder)
 Features(TableFeatureConfig)
 Selection(TableSelectionSchema)

@@ -18,7 +18,6 @@ func New(name ...string) TableSchema {
 	if len(name) > 0 && name[0] != "" {
 		schema.ID = name[0]
 		schema.Title = titleFromName(name[0])
-		schema.RequestURL = "/api/" + name[0]
 	}
 	return schema
 }
@@ -141,12 +140,6 @@ func (b *Builder) Title(title string) *Builder {
 	return b
 }
 
-// RequestURL sets the remote data request URL.
-func (b *Builder) RequestURL(url string) *Builder {
-	b.schema.RequestURL = url
-	return b
-}
-
 // RowIDKey sets the field used as a stable row identifier.
 func (b *Builder) RowIDKey(key string) *Builder {
 	b.schema.RowIDKey = key
@@ -171,12 +164,6 @@ func (b *Builder) Access(group access.AccessGroup, behavior access.NoAccessBehav
 // SubRowsKey sets the key that contains nested rows.
 func (b *Builder) SubRowsKey(key string) *Builder {
 	b.schema.SubRowsKey = key
-	return b
-}
-
-// SubRowsRequestURL sets the request URL for nested rows.
-func (b *Builder) SubRowsRequestURL(url string) *Builder {
-	b.schema.SubRowsRequestURL = url
 	return b
 }
 
@@ -351,11 +338,6 @@ func (b *Builder) SetTitle(title string) {
 	b.Title(title)
 }
 
-// SetRequestURL sets the remote data request URL.
-func (b *Builder) SetRequestURL(url string) {
-	b.RequestURL(url)
-}
-
 // SetRowIDKey sets the field used as a stable row identifier.
 func (b *Builder) SetRowIDKey(key string) {
 	b.RowIDKey(key)
@@ -369,11 +351,6 @@ func (b *Builder) SetEmptyMessage(message string) {
 // SetSubRowsKey sets the key that contains nested rows.
 func (b *Builder) SetSubRowsKey(key string) {
 	b.SubRowsKey(key)
-}
-
-// SetSubRowsRequestURL sets the request URL for nested rows.
-func (b *Builder) SetSubRowsRequestURL(url string) {
-	b.SubRowsRequestURL(url)
 }
 
 // SetFeatures replaces the feature config.
@@ -661,11 +638,6 @@ func (t *TableSchema) SetTitle(title string) {
 	NewBuilder(t).Title(title)
 }
 
-// SetRequestURL sets the remote data request URL.
-func (t *TableSchema) SetRequestURL(url string) {
-	NewBuilder(t).RequestURL(url)
-}
-
 // SetRowIDKey sets the field used as a stable row identifier.
 func (t *TableSchema) SetRowIDKey(key string) {
 	NewBuilder(t).RowIDKey(key)
@@ -677,8 +649,8 @@ func (t *TableSchema) SetEmptyMessage(message string) {
 }
 
 // SetSubRows configures nested rows.
-func (t *TableSchema) SetSubRows(key, requestURL string) {
-	NewBuilder(t).SubRowsKey(key).SubRowsRequestURL(requestURL)
+func (t *TableSchema) SetSubRows(key string) {
+	NewBuilder(t).SubRowsKey(key)
 }
 
 // Column appends an accessor column and returns its mutable DSL handle.

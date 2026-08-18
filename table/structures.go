@@ -1,20 +1,18 @@
 package table
 
 type TableSchema struct {
-	ID                string                `json:"id"`
-	Title             string                `json:"title,omitempty"`
-	RequestURL        string                `json:"requestUrl,omitempty"`
-	Columns           []TableColumnSchema   `json:"columns"`
-	Features          *TableFeatureConfig   `json:"features,omitempty"`
-	Events            *TableEventRoutes     `json:"events,omitempty"`
-	Actions           *TableActionGroups    `json:"actions,omitempty"`
-	Selection         *TableSelectionSchema `json:"selection,omitempty"`
-	RowIDKey          string                `json:"rowIdKey,omitempty"`
-	State             *TableStateConfig     `json:"state,omitempty"`
-	Data              *TableData            `json:"data,omitempty"`
-	EmptyMessage      string                `json:"emptyMessage,omitempty"`
-	SubRowsKey        string                `json:"subRowsKey,omitempty"`
-	SubRowsRequestURL string                `json:"subRowsRequestUrl,omitempty"`
+	ID           string                `json:"id"`
+	Title        string                `json:"title,omitempty"`
+	Columns      []TableColumnSchema   `json:"columns"`
+	Features     *TableFeatureConfig   `json:"features,omitempty"`
+	Events       *TableEventRoutes     `json:"events,omitempty"`
+	Actions      *TableActionGroups    `json:"actions,omitempty"`
+	Selection    *TableSelectionSchema `json:"selection,omitempty"`
+	RowIDKey     string                `json:"rowIdKey,omitempty"`
+	State        *TableStateConfig     `json:"state,omitempty"`
+	Data         *TableData            `json:"data,omitempty"`
+	EmptyMessage string                `json:"emptyMessage,omitempty"`
+	SubRowsKey   string                `json:"subRowsKey,omitempty"`
 
 	ElementCode      string `json:"elementCode,omitempty"`
 	AccessGroupCode  string `json:"accessGroupCode,omitempty"`

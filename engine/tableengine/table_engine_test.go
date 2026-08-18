@@ -270,7 +270,6 @@ func TestTableBuilderFluentAPI(t *testing.T) {
 
 	engine.Table("users").
 		Title("Users").
-		RequestURL("/api/users").
 		RowIDKey("id").
 		Columns(
 			engine.Column("id").Header("ID").AccessorKey("id"),
@@ -295,7 +294,7 @@ func TestTableBuilderFluentAPI(t *testing.T) {
 		})
 
 	dsl := engine.DSL().(table.TableSchema)
-	if dsl.Title != "Users" || dsl.RequestURL != "/api/users" || dsl.RowIDKey != "id" {
+	if dsl.Title != "Users" || dsl.RowIDKey != "id" {
 		t.Fatalf("unexpected table metadata: %#v", dsl)
 	}
 	if len(dsl.Columns) != 3 {
@@ -338,9 +337,6 @@ func TestTableBuilderAppliesSchemaDefaultsAndSimpleData(t *testing.T) {
 	dsl := engine.DSL().(table.TableSchema)
 	if dsl.Title != "Users" {
 		t.Fatalf("title = %q, want Users", dsl.Title)
-	}
-	if dsl.RequestURL != "/api/users" {
-		t.Fatalf("request URL = %q, want /api/users", dsl.RequestURL)
 	}
 	if dsl.RowIDKey != "id" {
 		t.Fatalf("row ID key = %q, want id", dsl.RowIDKey)
