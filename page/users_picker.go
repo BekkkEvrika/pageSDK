@@ -1,6 +1,7 @@
 package page
 
 import (
+	"github.com/BekkkEvrika/pageSDK/access"
 	"github.com/BekkkEvrika/pageSDK/engine"
 	"github.com/BekkkEvrika/pageSDK/engine/formengine"
 	inputs "github.com/BekkkEvrika/pageSDK/form"
@@ -63,24 +64,28 @@ func (p *UsersPickerPage) Init(ctx *engine.BuildContext) error {
 		return err
 	}
 	group.SetDefaultValue(ctx.Params["group_id"])
+	group.Access(UsersPickerActions, access.NoAccessReadonly)
 
 	ada, err := p.GetButtonById("selectAda")
 	if err != nil {
 		return err
 	}
 	ada.SetOnClick(OnSelectAda)
+	ada.Access(UsersPickerActions, access.NoAccessHidden)
 
 	grace, err := p.GetButtonById("selectGrace")
 	if err != nil {
 		return err
 	}
 	grace.SetOnClick(OnSelectGrace)
+	grace.Access(UsersPickerActions, access.NoAccessHidden)
 
 	cancel, err := p.GetButtonById("cancel")
 	if err != nil {
 		return err
 	}
 	cancel.SetOnClick(OnCancelPicker)
+	cancel.Access(UsersPickerActions, access.NoAccessHidden)
 	return nil
 }
 

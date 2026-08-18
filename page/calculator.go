@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/BekkkEvrika/pageSDK/access"
 	"github.com/BekkkEvrika/pageSDK/engine"
 	"github.com/BekkkEvrika/pageSDK/engine/formengine"
 	inputs "github.com/BekkkEvrika/pageSDK/form"
@@ -33,11 +34,14 @@ func (p *CalculatorPage) Init(_ *engine.BuildContext) error {
 				Title:     "Калькулятор",
 				Fields: []inputs.Input{
 					{
-						Id:           "result",
-						Type:         inputs.InputTypeText,
-						Label:        "Результат",
-						ReadOnly:     true,
-						DefaultValue: "0",
+						Id:               "result",
+						Type:             inputs.InputTypeText,
+						Label:            "Результат",
+						ReadOnly:         true,
+						DefaultValue:     "0",
+						ElementCode:      "calculator.result",
+						AccessGroupCode:  CalculatorUsage.Code,
+						NoAccessBehavior: string(access.NoAccessReadonly),
 					},
 				},
 				Containers: []inputs.Container{
@@ -118,10 +122,13 @@ func calculatorButtonRow(id string, buttons ...inputs.Input) inputs.Container {
 
 func calculatorButton(id, label, variant string) inputs.Input {
 	return inputs.Input{
-		Id:      id,
-		Type:    inputs.InputTypeButton,
-		Label:   label,
-		Variant: variant,
+		Id:               id,
+		Type:             inputs.InputTypeButton,
+		Label:            label,
+		Variant:          variant,
+		ElementCode:      "calculator.button." + id,
+		AccessGroupCode:  CalculatorUsage.Code,
+		NoAccessBehavior: string(access.NoAccessHidden),
 	}
 }
 

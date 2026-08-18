@@ -6,6 +6,9 @@
 Frontend-разработчикам нужен отдельный документ:
 [Client Event Protocol](client-events.md).
 
+Подробная архитектура хранения и lifecycle:
+[Page instances](page-instances.md).
+
 ## 1. Что представляет собой pageSDK
 
 `pageSDK` — backend-библиотека для server-driven UI.
@@ -15,26 +18,30 @@ pageSDK структура страницы создается backend-кодо�
 
 1. Go page строит декларативный DSL.
 2. Frontend получает DSL по HTTP и отрисовывает его.
-3. Пользователь вызывает событие.
-4. Frontend отправляет текущее состояние на статический event route.
-5. Backend handler возвращает явные mutations, navigation или dialogs.
-6. Frontend применяет response.
+3. Backend сохраняет созданный Page как in-memory instance.
+4. Пользователь вызывает событие.
+5. Frontend отправляет текущее состояние на event URL этого instance.
+6. Backend выполняет handler на том же объекте Page без повторного `Init`.
+7. Handler возвращает явные mutations, navigation или dialogs.
+8. Frontend применяет response.
 
 ```text
-Go Page.Init
-    │
-    ▼
-Render DSL ───────────────► Frontend renderer
-                               │
-                               │ click/change/table event
-                               ▼
-Runtime handler ◄──────── Event HTTP request
-    │
-    └──────── mutations/navigation/dialogs ───────► Frontend
+PageFactory -> Page.Init(request context)
+                   │
+                   ▼
+          Render DSL + instanceId ─────────► Frontend renderer
+                   │                            │
+                   │ Page сохраняется           │ event URL содержит
+                   │ in-memory                  │ pageInstanceId query
+                   ▼                            ▼
+          Page instance ◄────────────── Event HTTP request
+                   │
+                   └── handler без Init ──► mutations/navigation/dialogs
 ```
 
-Библиотека не хранит browser UI state между запросами. Page и Engine являются
-stateless с точки зрения жизненного цикла приложения.
+Backend хранит объект `Page`, собранный DSL и зарегистрированные handlers между
+render и event-запросами. Текущие browser values, selection, navigation stack и
+визуальное состояние по-прежнему принадлежат frontend и передаются в payload.
 
 ## 2. Что входит в библиотеку
 
@@ -67,11 +74,18 @@ go get github.com/BekkkEvrika/pageSDK
 ```go
 package main
 
-import pagesdk "github.com/BekkkEvrika/pageSDK"
+import (
+	"time"
+
+	pagesdk "github.com/BekkkEvrika/pageSDK"
+)
 
 func main() {
-	app := pagesdk.New()
-	if err := app.Bootstrap(registerPages, ":8080"); err != nil {
+	app := pagesdk.New(pagesdk.Config{
+		PageInstanceTTL:  30 * time.Minute,
+		MaxPageInstances: 10_000,
+	})
+	if err := app.Run(registerPages, ":8080"); err != nil {
 		panic(err)
 	}
 }
@@ -82,13 +96,158 @@ func registerPages(app *pagesdk.Application) {
 }
 ```
 
+`Run` обрабатывает CLI-команды и без аргументов запускает `Bootstrap`.
 `Bootstrap` выполняет три операции:
 
 1. вызывает функцию регистрации страниц;
 2. получает routes от engine каждой зарегистрированной page;
 3. регистрирует routes и запускает HTTP server.
 
-## 4. Manifest и page keys
+## 4. CLI и access-команды
+
+Если приложение запускается через `app.Run(...)`, собранный сервис понимает
+обычный server mode и команды для access manifest:
+
+```bash
+./service
+./service serve
+./service access generate
+./service access validate
+./service access diff
+./service access sync --dry-run
+./service access sync
+```
+
+Команды:
+
+| Команда | Что делает |
+|---|---|
+| `serve` | Запускает HTTP server. То же самое происходит, если запустить сервис без аргументов. |
+| `access generate` | Регистрирует pages, собирает access manifest и записывает `sfp.access.yaml` или путь из `Config.AccessManifestPath`. |
+| `access validate` | Читает manifest и проверяет дубли, parent links и stale references. |
+| `access diff` | Сравнивает текущий DSL с manifest и печатает новые/пропавшие legacy `resources`. |
+| `access sync --dry-run` | Валидирует manifest и показывает, сколько `accessGroups` будет синхронизировано, без запросов изменения в Keycloak. |
+| `access sync` | Валидирует manifest и синхронизирует `accessGroups` с Keycloak как UMA resources. Роли SDK не создаёт. |
+
+`access generate` создаёт два слоя:
+
+- `accessGroups` — новая SFP-модель доступов. Именно они синхронизируются в
+  Keycloak как UMA resources.
+- `resources` — legacy слой для старых event/table/button ключей. Он пока
+  сохраняется для совместимости и local diff.
+
+Page groups создаются автоматически для каждой зарегистрированной page:
+
+```yaml
+accessGroups:
+  - code: page.users.edit
+    name: Page users.edit
+    type: page
+    enabled: true
+```
+
+UI/action groups регистрируются в центральном Go registry. Это источник истины
+для списка access groups:
+
+```go
+var ClientCardEditing = pagesdk.AccessGroup{
+	Code: "client.card.editing",
+	Name: "Редактирование карточки клиента",
+}
+
+func RegisterAccess(app *pagesdk.Application) {
+	_ = app.RegisterAccessGroup(ClientCardEditing)
+}
+```
+
+`Type`, `Enabled` и `ParentCode` можно не указывать в коде примера:
+SDK заполнит `Type` как `ui_group` и `Enabled: true`. `ParentCode` нужен
+только если вы хотите явно отразить иерархию access groups в manifest.
+
+Pages только используют уже объявленные группы:
+
+```go
+func (p *ClientCardPage) Init(ctx *engine.BuildContext) error {
+	p.Text("client.name").
+		Access(accessdefs.ClientCardEditing, pagesdk.NoAccessReadonly)
+
+	p.Button("save").
+		Access(accessdefs.ClientCardEditing, pagesdk.NoAccessHidden)
+
+	return nil
+}
+```
+
+Для TableEngine доступны table, columns и actions:
+
+```go
+func (p *ClientsListPage) Init(ctx *engine.BuildContext) error {
+	p.Table("clients").
+		Access(accessdefs.ClientTableActions, pagesdk.NoAccessHidden).
+		Columns(
+			p.Column("name").
+				Header("Name").
+				Access(accessdefs.ClientTableActions, pagesdk.NoAccessHidden),
+			p.Column("status").
+				Header("Status").
+				AddActionBuilder(
+					p.Action("approve", p.onApprove).
+						Access(accessdefs.ClientTableActions, pagesdk.NoAccessHidden),
+				),
+		).
+		ToolbarActions(
+			p.Action("export", p.onExport).
+				Access(accessdefs.ClientTableActions, pagesdk.NoAccessHidden),
+		).
+		RowActions(
+			p.Action("delete", p.onDelete).
+				Access(accessdefs.ClientTableActions, pagesdk.NoAccessRemove),
+		).
+		SelectedActions(
+			p.Action("archive", p.onArchive).
+				Access(accessdefs.ClientTableActions, pagesdk.NoAccessHidden),
+		)
+
+	return nil
+}
+```
+
+Пример готового manifest с группировками вынесен в отдельный файл:
+[docs/examples/sfp.access.example.yaml](examples/sfp.access.example.yaml).
+
+В нём видно, как группировать access groups:
+
+- `accessGroups` отвечают на вопрос “какая бизнес-группа доступа существует?”;
+- `elements` генерируются SDK из `.Access(...)` в DSL и отвечают на вопрос
+  “какие UI элементы меняются при отсутствии этой группы?”;
+- роли, policies и назначение пользователей остаются в Keycloak и создаются
+  администратором, не SDK.
+
+Если page ссылается на группу, которой нет в registry, `access generate`
+завершится ошибкой:
+
+```text
+unknown access group "client.card.edting" referenced by element "save"
+```
+
+Это защищает от опечаток: SDK не создаёт новую access group из случайной
+строки в UI element.
+
+Для `access sync` нужны Keycloak-настройки в `pagesdk.Config` или env:
+
+```text
+KEYCLOAK_BASE_URL=http://IP:8081
+KEYCLOAK_REALM=sfp
+KEYCLOAK_CLIENT_ID=gateway
+KEYCLOAK_CLIENT_SECRET=...
+KEYCLOAK_SYNC_ENABLED=true
+```
+
+`access sync` получает service account token через token endpoint и создаёт
+или обновляет только access groups в Keycloak. UI elements из `elements`, роли
+и назначения пользователей в Keycloak не отправляются.
+
+## 5. Manifest и page keys
 
 Manifest связывает стабильный ключ страницы с фабрикой:
 
@@ -134,7 +293,7 @@ func NewUsersEditPage() engine.Page {
 }
 ```
 
-## 5. Контракт Page
+## 6. Контракт Page
 
 Каждая page реализует:
 
@@ -168,8 +327,13 @@ type UsersPage struct {
 - задать initial data/state;
 - при необходимости использовать `BuildContext`.
 
-`Init` не предназначен для runtime mutations. Он вызывается при bootstrap для
-route discovery и повторно на каждом request.
+`Init` не предназначен для runtime mutations. Он вызывается:
+
+- на временном sample Page во время bootstrap для route discovery;
+- на новом пользовательском Page во время каждого render-запроса.
+
+На event-запросах `Init` не вызывается: Application находит сохранённый Page по
+`pageInstanceId` и использует уже зарегистрированные handlers и DSL.
 
 Следствие: route topology должна быть детерминированной. Не регистрируйте
 handlers только для конкретного пользователя или query param:
@@ -184,9 +348,9 @@ if ctx.Params["can_save"] == "true" {
 Лучше всегда зарегистрировать route, а authorization проверить в handler или
 изменить доступность/visibility DSL-элемента.
 
-## 6. Lifecycle
+## 7. Lifecycle
 
-### 6.1 Bootstrap
+### 7.1 Bootstrap
 
 Во время bootstrap:
 
@@ -200,42 +364,111 @@ Application.Bootstrap
   -> register routes in Gin
 ```
 
-### 6.2 Render request
+### 7.2 Render request
 
 ```text
 GET /page/{pageKey}
   -> новая Page
   -> новый Engine
   -> Page.Init(request BuildContext)
+  -> создать криптографически случайный instanceId
+  -> привязать instanceId к опубликованным event URLs
+  -> сохранить Page в in-memory manager
   -> Engine.Render
   -> RenderResult
 ```
 
-### 6.3 Event request
+### 7.3 Event request
 
 ```text
-POST /event/...
-  -> новая Page
-  -> новый Engine
-  -> Page.Init(request BuildContext)
-  -> найти handler статического route
+POST /event/...?pageInstanceId={instanceId}
+  -> найти Page instance по instanceId и pageKey
+  -> проверить TTL
+  -> заблокировать instance на время event
+  -> найти handler, зарегистрированный при render
   -> создать typed RuntimeContext
   -> вызвать handler
   -> RuntimeResult
+  -> обновить время последней активности
 ```
 
-Не сохраняйте между запросами:
+`Init` при event отсутствует намеренно. Поэтому request-specific DSL,
+созданный для одного пользователя, не пересобирается и не заменяется DSL
+другого пользователя.
+
+### 7.4 Закрытие и expiration
+
+Render response содержит `instanceUrl`. Frontend должен вызвать его методом
+`DELETE`, когда страница окончательно закрыта:
+
+```http
+DELETE /page/users.edit/instance?pageInstanceId={instanceId}
+```
+
+Если явное закрытие не пришло, instance удаляется лениво после периода
+бездействия. Проверка expired instances выполняется при следующем обращении к
+manager, отдельного фонового cleanup goroutine нет.
+
+Defaults:
+
+```go
+pagesdk.Config{
+	PageInstanceTTL:  30 * time.Minute,
+	MaxPageInstances: 10_000,
+}
+```
+
+Нулевые или отрицательные значения заменяются defaults.
+
+### 7.5 Что хранится на backend
+
+В instance хранятся:
+
+- конкретный `Page` и его `Engine`;
+- DSL, построенный этим Page;
+- form/table handlers;
+- время создания и последней активности;
+- mutex, сериализующий events одного instance.
+
+Не используйте поля Page как замену browser state для:
 
 - выбранные строки;
 - текущие значения полей;
 - pagination state;
 - данные открытого dialog;
-- request-specific repositories или transactions.
+- navigation stack.
 
-Для долговременных данных используйте database/service layer. Для UI state
-используйте payload клиента и runtime context.
+Эти значения могут изменяться на frontend без обращения к backend, поэтому
+авторитетным источником event state остаётся payload клиента. В полях Page
+допустимо хранить request-specific immutable configuration и зависимости,
+созданные для данного render. Не храните там открытые transactions или другие
+ресурсы, требующие короткого request scope.
 
-## 7. BuildContext
+### 7.6 Что изменилось относительно прежнего lifecycle
+
+Раньше Application создавал новый Page и повторно вызывал `Init` на каждом
+event. Это приводило к повторной загрузке данных, пересборке DSL и потере
+связи с конкретным render пользователя.
+
+Теперь:
+
+| Раньше | Теперь |
+|---|---|
+| Page создавался на каждый HTTP request | Page создаётся на каждый render |
+| `Init` вызывался на render и event | `Init` вызывается на sample bootstrap Page и на render |
+| Event заново собирал DSL | Event использует DSL и handlers сохранённого instance |
+| URL содержал только статический path | Path прежний, instance добавлен через query |
+| Не было явного close lifecycle | Render возвращает `instanceUrl` для `DELETE` |
+| Events не координировались на уровне instance | Events одного instance сериализуются mutex-ом |
+
+Access manifest не меняется из-за instance ID: collector анализирует только
+стабильные route paths, а `pageInstanceId` появляется позже в runtime URL.
+
+Для backend-кода основной migration обычно не требуется: factories, `Init` и
+handlers сохраняют прежние signatures. Frontend обязан перейти на полные URL
+из DSL и обрабатывать `instanceId`/`instanceUrl`.
+
+## 8. BuildContext
 
 `Page.Init` получает:
 
@@ -266,7 +499,7 @@ func (p *UsersEditPage) Init(ctx *engine.BuildContext) error {
 приложению нужна authentication integration, transport layer должен заполнить
 эти значения до вызова engine.
 
-## 8. FormEngine: начало работы
+## 9. FormEngine: начало работы
 
 Импорты:
 
@@ -292,7 +525,7 @@ func NewUsersEditPage() engine.Page {
 }
 ```
 
-### 8.1 Fluent builder
+### 9.1 Fluent builder
 
 Предпочтительный стиль:
 
@@ -335,7 +568,7 @@ name.SetPlaceholder("Enter user name")
 name.SetOnChange(onNameChange)
 ```
 
-### 8.2 Фабрики controls
+### 9.2 Фабрики controls
 
 `FormEngine` предоставляет:
 
@@ -389,7 +622,7 @@ control type и trigger.
 `Label` намеренно предоставляет только `Input`, `SetLabel` и fluent `Label`.
 У label нет runtime value.
 
-### 8.3 Select options
+### 9.3 Select options
 
 ```go
 p.Select("role").
@@ -400,7 +633,50 @@ p.Select("role").
 	})
 ```
 
-### 8.4 Validation
+Runtime handler может заменить options уже существующего select:
+
+```go
+func onCountryChange(ctx *formengine.RuntimeContext) {
+	country, err := ctx.GetSelectById("country")
+	if err != nil {
+		return
+	}
+	city, err := ctx.GetSelectById("city")
+	if err != nil {
+		return
+	}
+
+	city.SetOptions(loadCities(country.Element().Value))
+	city.SetValue("")
+}
+```
+
+Frontend получит две mutations:
+
+```json
+{
+  "mutations": [
+    {
+      "type": "update",
+      "path": "controls.city.options",
+      "value": [
+        {"value": "dushanbe", "label": "Dushanbe"},
+        {"value": "khujand", "label": "Khujand"}
+      ]
+    },
+    {
+      "type": "update",
+      "path": "controls.city.value",
+      "value": ""
+    }
+  ]
+}
+```
+
+Полный runnable example зарегистрирован как `controls.combos` в
+[`cmd/pagesdk-example/main.go`](../cmd/pagesdk-example/main.go).
+
+### 9.4 Validation
 
 ```go
 minLength := 3
@@ -418,7 +694,7 @@ p.Text("name").
 Validation является частью DSL. Ее исполнение зависит от frontend-клиента.
 Критические бизнес-правила все равно проверяйте в backend handler.
 
-### 8.5 File configuration
+### 9.5 File configuration
 
 ```go
 p.File("documents").
@@ -431,7 +707,7 @@ p.File("documents").
 	})
 ```
 
-### 8.6 Полный Form DSL
+### 9.6 Полный Form DSL
 
 Builder удобен для default container. Для сложной вложенной layout-структуры
 можно передать полный DSL:
@@ -463,7 +739,7 @@ save.OnClick(onSave)
 `SetForm` является alias-подходом к замене текущего DSL. `Container` добавляет
 top-level container, а `Field` добавляет raw input в default container.
 
-### 8.7 Typed build-time getters
+### 9.7 Typed build-time getters
 
 Для уже существующего DSL:
 
@@ -489,7 +765,7 @@ Getter возвращает error, если:
 
 Не игнорируйте такую ошибку в `Init`: это schema/configuration error.
 
-## 9. Form events и routes
+## 10. Form events и routes
 
 `OnClick` и `OnChange` одновременно:
 
@@ -507,14 +783,16 @@ p.Text("name").OnChange(onNameChange)
 Routes:
 
 ```text
-POST /event/{pageKey}/button/save
-POST /event/{pageKey}/text/name
+POST /event/{pageKey}/button/save?pageInstanceId={instanceId}
+POST /event/{pageKey}/text/name?pageInstanceId={instanceId}
 ```
 
 Frontend не должен строить эти URL из соглашений. Он использует `url` и
-`method`, опубликованные в action metadata.
+`method`, опубликованные в action metadata. `pageInstanceId` находится только
+в query-параметре: path остаётся стабильным для access control и route
+discovery.
 
-## 10. Form RuntimeContext
+## 11. Form RuntimeContext
 
 Handler signature:
 
@@ -526,6 +804,7 @@ Runtime context содержит:
 
 ```go
 PageKey
+PageInstanceID
 User
 System
 Params
@@ -537,7 +816,7 @@ Navigation
 Dialogs
 ```
 
-### 10.1 Чтение runtime values
+### 11.1 Чтение runtime values
 
 ```go
 func onSave(ctx *formengine.RuntimeContext) {
@@ -559,7 +838,7 @@ func onSave(ctx *formengine.RuntimeContext) {
 
 Runtime getters имеют те же typed варианты, что и build-time getters.
 
-### 10.2 Mutations
+### 11.2 Mutations
 
 Backend не вычисляет diff автоматически. Изменения нужно записывать явно:
 
@@ -589,6 +868,10 @@ Response:
 }
 ```
 
+Динамическое изменение структуры DSL через events больше не является основной
+моделью. Предпочитайте фиксированную структуру, созданную в `Init`, и mutations
+существующих controls. `Add`/`Remove` пока остаются для обратной совместимости:
+
 Добавление control:
 
 ```go
@@ -610,7 +893,7 @@ ctx.Form().Remove("note")
 Runtime mutation существующего control проверяет, что control присутствует в
 DSL. Ошибка сохраняется в context и event request завершается ошибкой.
 
-### 10.3 Ошибки handler
+### 11.3 Ошибки handler
 
 ```go
 func onSave(ctx *formengine.RuntimeContext) {
@@ -631,7 +914,7 @@ layer. Встроенный `Application` отвечает HTTP `500` с JSON:
 Сейчас библиотека не разделяет domain errors на `4xx` и internal errors:
 пользователь интеграции должен учитывать это при проектировании API.
 
-## 11. Navigation
+## 12. Navigation
 
 Form handler может:
 
@@ -676,7 +959,7 @@ func onUserSelected(ctx *formengine.RuntimeContext) {
 Имена callback routes выводятся из имен Go-функций. Для стабильности
 используйте именованные package-level functions, а не динамические closures.
 
-## 12. Dialogs
+## 13. Dialogs
 
 Простые helpers:
 
@@ -717,11 +1000,12 @@ ctx.ShowDialog(engine.Dialog{
 })
 ```
 
-Dialog callback в текущей реализации хранится в process memory и удаляется
-после первого вызова. Для нескольких application instances потребуется sticky
-routing или внешний callback registry.
+Dialog callback в текущей реализации хранится в process memory, его URL
+содержит `pageInstanceId`, а handler удаляется после первого вызова. Для
+нескольких application replicas потребуется sticky routing: сам Page instance
+и callback registry находятся в памяти конкретного процесса.
 
-## 13. TableEngine: начало работы
+## 14. TableEngine: начало работы
 
 Импорты:
 
@@ -792,7 +1076,7 @@ func (p *UsersPage) Init(ctx *engine.BuildContext) error {
 }
 ```
 
-## 14. Table builder
+## 15. Table builder
 
 Основные методы table builder:
 
@@ -824,7 +1108,7 @@ SelectedAction(schema, handler)
 - в mutation path `tables.users.data`;
 - frontend state registry.
 
-## 15. Table columns
+## 16. Table columns
 
 Создание accessor column:
 
@@ -865,7 +1149,7 @@ text, number, boolean, date, datetime, currency, badge,
 status, image, file, link, actions, custom
 ```
 
-### 15.1 Hidden и hideable
+### 16.1 Hidden и hideable
 
 ```go
 p.Column("id").
@@ -879,7 +1163,7 @@ p.Column("id").
 Hidden column остается в schema и row data. Ее можно использовать как row ID и
 в action payload.
 
-### 15.2 Value styles
+### 16.2 Value styles
 
 ```go
 p.Column("status").
@@ -889,7 +1173,7 @@ p.Column("status").
 	ValueStyle("pending", tableengine.TableCellVariantWarning)
 ```
 
-### 15.3 Format
+### 16.3 Format
 
 ```go
 p.Column("amount").
@@ -901,7 +1185,7 @@ p.Column("amount").
 	})
 ```
 
-## 16. Table data и state
+## 17. Table data и state
 
 ```go
 tableengine.TableData{
@@ -949,9 +1233,9 @@ tableengine.TableFeatureConfig{
 Регистрация `OnReload`, `OnFilter` и `OnPagination` автоматически включает
 соответствующие feature flags.
 
-## 17. Table runtime events
+## 18. Table runtime events
 
-### 17.1 Reload, filter и pagination
+### 18.1 Reload, filter и pagination
 
 ```go
 func onUsersPagination(ctx *tableengine.TableRuntimeContext) {
@@ -978,7 +1262,7 @@ ctx.User
 ctx.System
 ```
 
-### 17.2 Несколько toolbar actions
+### 18.2 Несколько toolbar actions
 
 ```go
 .ToolbarActions(
@@ -997,14 +1281,14 @@ ctx.System
 Каждый action получает отдельный route:
 
 ```text
-POST /event/{pageKey}/table/{tableID}/toolbar/refresh
-POST /event/{pageKey}/table/{tableID}/toolbar/clear
+POST /event/{pageKey}/table/{tableID}/toolbar/refresh?pageInstanceId={instanceId}
+POST /event/{pageKey}/table/{tableID}/toolbar/clear?pageInstanceId={instanceId}
 ```
 
 Body toolbar action игнорируется. Handler получает server/request context, но
 не получает table payload.
 
-### 17.3 Row action
+### 18.3 Row action
 
 ```go
 .RowAction(tableengine.ActionSchema{
@@ -1039,7 +1323,7 @@ Frontend отправляет:
 
 Row должен содержать значение `RowIDKey`.
 
-### 17.4 Column action
+### 18.4 Column action
 
 ```go
 p.Column("email").
@@ -1066,7 +1350,7 @@ Payload:
 }
 ```
 
-### 17.5 Selected action
+### 18.5 Selected action
 
 ```go
 .SelectedAction(tableengine.ActionSchema{
@@ -1094,7 +1378,7 @@ Payload:
 }
 ```
 
-## 18. Table mutations и navigation
+## 19. Table mutations и navigation
 
 Обновление visible data:
 
@@ -1135,13 +1419,15 @@ ctx.SetError(errors.New("could not load users"))
 В текущем TableRuntimeContext dialogs отсутствуют; используйте navigation или
 расширяйте engine contract при необходимости.
 
-## 19. HTTP contract
+## 20. HTTP contract
 
 Render response:
 
 ```json
 {
   "pageKey": "users.list",
+  "instanceId": "generated-instance-id",
+  "instanceUrl": "/page/users.list/instance?pageInstanceId=generated-instance-id",
   "engine": "table",
   "dsl": {}
 }
@@ -1163,6 +1449,10 @@ Runtime response:
 Встроенное приложение:
 
 - отвечает `200` при успешном handler;
+- отвечает `400`, если event/close request не содержит `pageInstanceId`;
+- отвечает `404`, если instance не найден или принадлежит другому page key;
+- отвечает `410`, если instance найден, но его idle TTL истёк;
+- отвечает `503`, если достигнут `MaxPageInstances`;
 - отвечает `500` и `{"error":"..."}` при ошибке;
 - читает query parameters в `RequestContext.Query` и `Params`;
 - не устанавливает auth claims автоматически.
@@ -1170,10 +1460,10 @@ Runtime response:
 Точный frontend payload/route contract описан в
 [client-events.md](client-events.md).
 
-## 20. Stateless design и зависимости
+## 21. Page instances и зависимости
 
-Page instance живет один request, поэтому зависимости обычно передают через
-factory:
+Page instance живёт от render до explicit close или idle expiration.
+Зависимости по-прежнему передают через factory:
 
 ```go
 type UsersPage struct {
@@ -1197,8 +1487,12 @@ func NewUsersPage(users UserRepository) engine.PageFactory {
 app.Manifest().Register("users.list", NewUsersPage(usersRepository))
 ```
 
-Repository может быть shared и concurrency-safe. Request-specific mutable state
-не должен сохраняться в shared dependency без синхронизации.
+Repository может быть shared и concurrency-safe. Events одного Page instance
+сериализуются mutex-ом, но разные instances выполняются параллельно. Shared
+dependencies поэтому всё равно обязаны быть concurrency-safe.
+
+Factory должна возвращать новый Page на каждый render. Один и тот же Page
+нельзя возвращать нескольким пользователям: их DSL и handlers смешаются.
 
 Handlers могут быть methods:
 
@@ -1220,10 +1514,79 @@ func (p *UsersPage) onReload(ctx *tableengine.TableRuntimeContext) {
 }
 ```
 
-## 21. Authorization
+## 22. Authorization
 
 Не полагайтесь только на visibility кнопки или отсутствие frontend element.
-Authorization должна выполняться на backend в каждом чувствительном handler:
+Если элемент помечен через `.Access(group, ...)`, SDK проверяет эту группу не
+только при render-фильтрации DSL, но и перед выполнением event handler.
+
+Это значит:
+
+- page group проверяется до `Init`; без доступа SDK возвращает `403` и не
+  строит DSL;
+- form control event с `AccessGroupCode` проверяется перед `OnClick`/`OnChange`;
+- table reload/filter/pagination проверяются по access group всей таблицы;
+- table toolbar/row/selected/column actions проверяются по access group самого
+  action;
+- если access group отсутствует, SDK возвращает `403`, и handler не
+  выполняется;
+- event без `.Access(...)` остаётся доступным после обычных проверок JWT,
+  page access и owner `pageInstanceId`.
+
+`UseRPTAccessAuthorizer()` работает в два шага. Сначала SDK читает resources из
+`authorization.permissions` текущего RPT. Если нужной access group там нет, но
+настроены `KeycloakURL`, `Realm` и `ClientID`, SDK сам отправляет UMA decision
+request в Keycloak:
+
+```text
+permission={accessGroupCode}#access
+response_mode=decision
+```
+
+Поэтому gateway может выдавать RPT только для page access, а element-level
+доступы SDK проверит самостоятельно.
+
+Handler всё равно должен проверять бизнес-правила: tenant, ownership, row ID,
+актуальное состояние entity и другие данные, которые нельзя доверять frontend
+payload.
+
+### JWT authentication
+
+pageSDK может проверять Keycloak/OIDC RS256 access tokens через realm JWKS:
+
+```go
+authenticator := pagesdk.NewKeycloakJWTAuthenticator(pagesdk.KeycloakJWTConfig{
+	KeycloakURL:     "https://keycloak.example.com",
+	Realm:           "main",
+	Audience:        "page-api",
+	AuthorizedParty: "frontend",
+	ClockSkew:       30 * time.Second,
+})
+
+application := pagesdk.New(pagesdk.Config{
+	Authenticator: authenticator,
+})
+```
+
+Проверяются подпись RS256 и `kid` через JWKS, `iss`, обязательные `sub` и
+`exp`, а также `nbf`, `iat`, настроенные `aud` и `azp`.
+
+Проверенные claims доступны при построении страницы:
+
+```go
+func (p *UsersPage) Init(ctx *engine.BuildContext) error {
+	userID, _ := ctx.User["sub"].(string)
+	username, _ := ctx.User["preferred_username"].(string)
+	_, _ = userID, username
+	return nil
+}
+```
+
+И внутри event handler через `ctx.User`.
+
+Page instance закрепляется за `{iss}|{sub}`. Новый JWT после refresh может
+использовать тот же instance, если issuer и subject не изменились. Токен
+проверяется на каждом запросе и не хранится внутри instance.
 
 ```go
 func (p *UsersPage) onDelete(ctx *tableengine.TableRuntimeContext) {
@@ -1243,9 +1606,14 @@ Frontend payload недоверенный:
 - не доверяйте price, role, permission или status из row payload;
 - валидируйте callback result.
 
-## 22. Testing
+`pageInstanceId` также нельзя считать authorization token. При настроенном
+`Authenticator` transport привязывает instance к проверенному owner и
+отклоняет event/delete другого пользователя как `404`. При отсутствии
+`Authenticator` остаётся legacy-режим без этой защиты.
 
-### 22.1 Обычный unit test handler
+## 23. Testing
+
+### 23.1 Обычный unit test handler
 
 Handlers работают с typed context и могут тестироваться без HTTP:
 
@@ -1265,7 +1633,7 @@ func TestOnRefresh(t *testing.T) {
 }
 ```
 
-### 22.2 Schema test
+### 23.2 Schema test
 
 Создайте page, вызовите `Init`, затем проверьте `DSL()`:
 
@@ -1281,13 +1649,13 @@ if dsl.ID != "users" {
 }
 ```
 
-### 22.3 Полный набор тестов библиотеки
+### 23.3 Полный набор тестов библиотеки
 
 ```bash
 go test ./...
 ```
 
-## 23. Совместимость builder и setter API
+## 24. Совместимость builder и setter API
 
 Builder API добавлен поверх прежней модели:
 
@@ -1324,7 +1692,7 @@ column.SetSortable(true)
 Существующий код не требуется переписывать. Для нового кода рекомендуется
 fluent builder, потому что он компактнее и лучше показывает структуру DSL.
 
-## 24. Частые ошибки
+## 25. Частые ошибки
 
 ### Handler route отсутствует
 
@@ -1369,15 +1737,29 @@ Toolbar handler не использует client payload. Тело запрос�
 
 ### Runtime state исчезает между запросами
 
-Это ожидаемо: Page stateless. Состояние должно находиться на frontend или в
-постоянном backend storage.
+Объект Page теперь сохраняется между render и events. Если исчезли текущие
+значения controls, selection или pagination, проверьте event payload: browser
+state не восстанавливается автоматически из Page.
+
+### Event отвечает `pageInstanceId is required`
+
+Frontend вызвал path вручную или потерял query-параметр. Используйте полный URL
+из DSL, callback или dialog action, не реконструируйте его.
+
+### Event отвечает `404` или `410`
+
+- `404` — instance не существует, был закрыт, относится к другой page или
+  процесс был перезапущен;
+- `410` — idle TTL instance истёк.
+
+Frontend должен прекратить отправку events и заново выполнить render страницы.
 
 ### Route зависит от request params
 
 Routes обнаруживаются при bootstrap с пустым `BuildContext`. Handler topology
 должна быть одинаковой для всех requests.
 
-## 25. Рекомендованная структура приложения
+## 26. Рекомендованная структура приложения
 
 ```text
 internal/
@@ -1410,14 +1792,19 @@ func RegisterPages(app *pagesdk.Application, deps Dependencies) {
 - persistence в repositories;
 - frontend protocol implementation в клиентском renderer.
 
-## 26. Production checklist
+## 27. Production checklist
 
 Перед production:
 
 - все page keys стабильны и уникальны;
 - все factories возвращают новый Page/Engine;
 - route topology не зависит от request;
+- `PageInstanceTTL` и `MaxPageInstances` соответствуют ожидаемой нагрузке;
+- frontend сохраняет `instanceId`/`instanceUrl` для каждого открытого окна;
+- frontend вызывает `instanceUrl` при окончательном закрытии страницы;
+- deployment с несколькими replicas использует sticky sessions;
 - handlers проверяют authorization;
+- instance URL не используется как единственная проверка authorization;
 - frontend использует URLs из DSL;
 - client payload считается недоверенным;
 - repositories и shared services concurrency-safe;
@@ -1428,9 +1815,11 @@ func RegisterPages(app *pagesdk.Application, deps Dependencies) {
 - есть schema и handler tests;
 - `go test ./...` проходит.
 
-## 27. Следующие документы
+## 28. Следующие документы
 
 - Backend API и patterns: этот документ.
+- Архитектура и lifecycle in-memory Page:
+  [Page instances](page-instances.md).
 - Точные URLs, payloads и frontend behavior:
   [Client Event Protocol](client-events.md).
 - Рабочие примеры:

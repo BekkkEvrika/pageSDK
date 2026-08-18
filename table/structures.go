@@ -15,6 +15,10 @@ type TableSchema struct {
 	EmptyMessage      string                `json:"emptyMessage,omitempty"`
 	SubRowsKey        string                `json:"subRowsKey,omitempty"`
 	SubRowsRequestURL string                `json:"subRowsRequestUrl,omitempty"`
+
+	ElementCode      string `json:"elementCode,omitempty"`
+	AccessGroupCode  string `json:"accessGroupCode,omitempty"`
+	NoAccessBehavior string `json:"noAccessBehavior,omitempty"`
 }
 
 type TableEventRoutes struct {
@@ -53,6 +57,10 @@ type TableColumnSchema struct {
 
 	Format      *TableColumnFormat         `json:"format,omitempty"`
 	ValueStyles map[string]TableValueStyle `json:"valueStyles,omitempty"`
+
+	ElementCode      string `json:"elementCode,omitempty"`
+	AccessGroupCode  string `json:"accessGroupCode,omitempty"`
+	NoAccessBehavior string `json:"noAccessBehavior,omitempty"`
 }
 
 // TableValueStyle describes how a concrete cell value should be rendered.
@@ -81,6 +89,10 @@ type ActionSchema struct {
 	URL     string        `json:"url,omitempty"`
 	Method  HTTPMethod    `json:"method,omitempty"`
 	Hotkey  string        `json:"hotkey,omitempty"`
+
+	ElementCode      string `json:"elementCode,omitempty"`
+	AccessGroupCode  string `json:"accessGroupCode,omitempty"`
+	NoAccessBehavior string `json:"noAccessBehavior,omitempty"`
 }
 
 type TableFeatureConfig struct {

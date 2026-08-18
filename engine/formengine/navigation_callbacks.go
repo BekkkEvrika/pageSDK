@@ -14,21 +14,31 @@ import (
 
 var navigationCallbackHandlers sync.Map
 
-func registerNavigationCallback(pageKey string, handler NavigationCallback) string {
+func registerNavigationCallback(pageKey string, handler NavigationCallback, module ...string) string {
 	name := navigationCallbackName(handler)
-	key := navigationCallbackKey(pageKey, name)
+	instanceID := ""
+	if len(module) > 1 {
+		instanceID = module[1]
+	}
+	key := navigationCallbackKey(pageKey, instanceID, name)
 	navigationCallbackHandlers.Store(key, handler)
-	return navigationCallbackRoutePath(pageKey, name)
+	moduleName := ""
+	if len(module) > 0 {
+		moduleName = module[0]
+	}
+	return engine.PageInstanceURL(navigationCallbackRoutePath(moduleName, pageKey, name), instanceID)
 }
 
 // HandleCallback dispatches a navigation callback event registered by OpenDialog/OpenTab/OpenPage.
 func (f *FormEngine) HandleCallback(ctx *engine.RequestContext, page engine.Page) (*engine.RuntimeResult, error) {
-	if err := page.Init(ctx.BuildContext()); err != nil {
-		return nil, err
+	if ctx.PageInstanceID == "" {
+		if err := page.Init(ctx.BuildContext()); err != nil {
+			return nil, err
+		}
 	}
 
 	name := ctx.Params["callback"]
-	handlerValue, ok := navigationCallbackHandlers.Load(navigationCallbackKey(ctx.PageKey, name))
+	handlerValue, ok := navigationCallbackHandlers.Load(navigationCallbackKey(ctx.PageKey, ctx.PageInstanceID, name))
 	if !ok {
 		return nil, fmt.Errorf("form engine: navigation callback %q not found", name)
 	}
@@ -131,10 +141,27 @@ func toSnakeIdentifier(value string) string {
 	return result
 }
 
-func navigationCallbackKey(pageKey, name string) string {
-	return pageKey + "/" + name
+func navigationCallbackKey(pageKey string, parts ...string) string {
+	instanceID := ""
+	name := ""
+	switch len(parts) {
+	case 1:
+		name = parts[0]
+	case 2:
+		instanceID, name = parts[0], parts[1]
+	}
+	return pageKey + "/" + instanceID + "/" + name
 }
 
-func navigationCallbackRoutePath(pageKey, name string) string {
-	return "/event/" + pageKey + "/callback/" + name
+func navigationCallbackRoutePath(args ...string) string {
+	var module, pageKey, name string
+	switch len(args) {
+	case 2:
+		pageKey, name = args[0], args[1]
+	case 3:
+		module, pageKey, name = args[0], args[1], args[2]
+	default:
+		return ""
+	}
+	return engine.RoutePath(module, "/event/"+pageKey+"/callback/"+name)
 }

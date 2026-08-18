@@ -1,6 +1,7 @@
 package formengine
 
 import (
+	"github.com/BekkkEvrika/pageSDK/access"
 	inputs "github.com/BekkkEvrika/pageSDK/form"
 )
 
@@ -103,6 +104,14 @@ func (c *FormControl) SetSearch(search string) {
 
 func (c *FormControl) SetDataType(dataType string) {
 	c.input.DataType = dataType
+}
+
+func (c *FormControl) SetAccess(group access.AccessGroup, behavior access.NoAccessBehavior) {
+	c.input.AccessGroupCode = group.Code
+	if c.input.ElementCode == "" {
+		c.input.ElementCode = c.input.Id
+	}
+	c.input.NoAccessBehavior = string(behavior)
 }
 
 // Name sets the submitted field name.
@@ -228,6 +237,14 @@ func (c *FormControl) Search(search string) *FormControl {
 // DataType sets the field data type.
 func (c *FormControl) DataType(dataType string) *FormControl {
 	c.SetDataType(dataType)
+	return c
+}
+
+// Access binds this UI element to a registered SFP access group.
+// The group must exist in the Application access registry; access generate
+// fails for unknown group codes instead of creating new groups from typos.
+func (c *FormControl) Access(group access.AccessGroup, behavior access.NoAccessBehavior) *FormControl {
+	c.SetAccess(group, behavior)
 	return c
 }
 

@@ -39,6 +39,10 @@ type Input struct {
 	DefaultValue interface{}      `json:"defaultValue,omitempty"`
 	Search       string           `json:"searchSource,omitempty"`
 	DataType     string           `json:"dataType,omitempty"` //number,string,bool : default string
+
+	ElementCode      string `json:"elementCode,omitempty"`
+	AccessGroupCode  string `json:"accessGroupCode,omitempty"`
+	NoAccessBehavior string `json:"noAccessBehavior,omitempty"`
 }
 
 type ComboItem struct {

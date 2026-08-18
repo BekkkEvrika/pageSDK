@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/BekkkEvrika/pageSDK/access"
 	"github.com/BekkkEvrika/pageSDK/engine"
 	"github.com/BekkkEvrika/pageSDK/engine/tableengine"
 )
@@ -24,24 +25,35 @@ func NewUsersPage() engine.Page {
 // Init builds only the table DSL schema.
 func (p *UsersPage) Init(ctx *engine.BuildContext) error {
 	p.Table("users").
+		Access(UsersListViewing, access.NoAccessHidden).
 		Columns(
 			p.Column("id").
 				DataType(tableengine.TableColumnDataTypeNumber).
 				Hidden(true).
 				Hideable(false).
-				Width(80),
+				Width(80).
+				Access(UsersListViewing, access.NoAccessHidden),
 			p.Column("name").
 				Searchable(true).
-				AddAction(onNormalizeUserNames, "normalize_names"),
+				Access(UsersListViewing, access.NoAccessHidden).
+				AddActionBuilder(
+					p.Action("normalize_names", onNormalizeUserNames).
+						Access(UsersListActions, access.NoAccessHidden),
+				),
 			p.Column("email").
 				Searchable(true).
-				AddAction(onNormalizeUserEmails, "normalize_emails"),
+				Access(UsersListViewing, access.NoAccessHidden).
+				AddActionBuilder(
+					p.Action("normalize_emails", onNormalizeUserEmails).
+						Access(UsersListActions, access.NoAccessHidden),
+				),
 			p.Column("status").
 				CellType(tableengine.TableColumnCellTypeBadge).
 				ValueStyle("active", tableengine.TableCellVariantSuccess).
 				ValueStyle("inactive", tableengine.TableCellVariantDanger).
 				ValueStyle("pending", tableengine.TableCellVariantWarning).
-				Filterable(true),
+				Filterable(true).
+				Access(UsersListViewing, access.NoAccessHidden),
 		).
 		Data(usersData(0, 20)).
 		Features(tableengine.TableFeatureConfig{
@@ -61,24 +73,28 @@ func (p *UsersPage) Init(ctx *engine.BuildContext) error {
 			p.Action("refresh", onUsersRefresh).
 				Icon("refresh").
 				Variant(tableengine.ActionVariantSecondary).
-				Hotkey("F5"),
+				Hotkey("F5").
+				Access(UsersListActions, access.NoAccessHidden),
 			p.Action("clear", onUsersClear).
 				Icon("trash").
-				Variant(tableengine.ActionVariantDanger),
+				Variant(tableengine.ActionVariantDanger).
+				Access(UsersListActions, access.NoAccessHidden),
 		).
-		RowAction(tableengine.ActionSchema{
-			ID:      "edit",
-			Label:   "Edit",
-			Icon:    "pencil",
-			Variant: tableengine.ActionVariantSecondary,
-		}, onUserEdit).
-		SelectedAction(tableengine.ActionSchema{
-			ID:      "delete_selected",
-			Label:   "Delete Selected",
-			Icon:    "trash",
-			Variant: tableengine.ActionVariantDanger,
-			Hotkey:  "Delete",
-		}, onDeleteSelectedUsers)
+		RowActions(
+			p.Action("edit", onUserEdit).
+				Label("Edit").
+				Icon("pencil").
+				Variant(tableengine.ActionVariantSecondary).
+				Access(UsersListActions, access.NoAccessHidden),
+		).
+		SelectedActions(
+			p.Action("delete_selected", onDeleteSelectedUsers).
+				Label("Delete Selected").
+				Icon("trash").
+				Variant(tableengine.ActionVariantDanger).
+				Hotkey("Delete").
+				Access(UsersListActions, access.NoAccessRemove),
+		)
 
 	return nil
 }

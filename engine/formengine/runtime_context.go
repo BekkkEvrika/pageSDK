@@ -14,18 +14,20 @@ type RuntimeNode interface {
 
 // RuntimeContext is used only by FormEngine event handlers.
 type RuntimeContext struct {
-	PageKey    string
-	User       engine.User
-	System     engine.SystemKeys
-	Params     engine.Params
-	Extra      map[string]any
-	FormState  *inputs.FormState
-	Sender     *inputs.ElementState
-	Mutations  []engine.Mutation
-	Navigation []engine.NavigationAction
-	Dialogs    []engine.Dialog
-	Err        error
-	formRoot   *inputs.Container
+	PageKey        string
+	PageInstanceID string
+	Module         string
+	User           engine.User
+	System         engine.SystemKeys
+	Params         engine.Params
+	Extra          map[string]any
+	FormState      *inputs.FormState
+	Sender         *inputs.ElementState
+	Mutations      []engine.Mutation
+	Navigation     []engine.NavigationAction
+	Dialogs        []engine.Dialog
+	Err            error
+	formRoot       *inputs.Container
 }
 
 type RuntimeControl struct {
@@ -71,10 +73,12 @@ func NewRuntimeContext(req *engine.RequestContext) *RuntimeContext {
 		params = engine.Params{}
 	}
 	return &RuntimeContext{
-		PageKey: req.PageKey,
-		User:    req.User,
-		System:  req.System,
-		Params:  params,
+		PageKey:        req.PageKey,
+		PageInstanceID: req.PageInstanceID,
+		Module:         req.Module,
+		User:           req.User,
+		System:         req.System,
+		Params:         params,
 	}
 }
 
@@ -170,7 +174,7 @@ func (ctx *RuntimeContext) OpenPage(page string, options ...any) {
 
 func (ctx *RuntimeContext) ShowDialog(dialog engine.Dialog, handler ...DialogHandler) {
 	if len(handler) > 0 {
-		dialog = bindDialogHandler(ctx.PageKey, dialog, handler[0])
+		dialog = bindDialogHandler(ctx.PageKey, dialog, handler[0], ctx.Module, ctx.PageInstanceID)
 	}
 	ctx.Dialogs = append(ctx.Dialogs, dialog)
 }
@@ -281,6 +285,16 @@ func (c *RuntimeControl) SetValue(value any) {
 	c.Value = value
 	c.state.Value = value
 	c.ctx.update("controls."+c.input.Id+".value", value)
+}
+
+// SetOptions replaces the options of an existing select control.
+func (c *RuntimeSelect) SetOptions(options inputs.ComboItems) {
+	if !c.valid() {
+		return
+	}
+	c.input.Options = options
+	c.state.Options = options
+	c.ctx.update("controls."+c.input.Id+".options", options)
 }
 
 func (c *RuntimeLabel) DSL() any {
@@ -442,7 +456,7 @@ func (ctx *RuntimeContext) showDialogWithHandler(title, description string, leve
 		Description: description,
 		Level:       level,
 		Actions:     actions,
-	}, handler))
+	}, handler, ctx.Module, ctx.PageInstanceID))
 }
 
 func okDialogActions() []engine.DialogAction {
@@ -538,7 +552,7 @@ func (ctx *RuntimeContext) openAction(page string, mode engine.NavigationMode, o
 		Extra: openOptions.Extra,
 	}
 	if openOptions.Callback != nil {
-		action.Callback = registerNavigationCallback(ctx.PageKey, openOptions.Callback)
+		action.Callback = registerNavigationCallback(ctx.PageKey, openOptions.Callback, ctx.Module, ctx.PageInstanceID)
 	}
 	return action, nil
 }
