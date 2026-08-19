@@ -10,11 +10,13 @@ import (
 	"github.com/BekkkEvrika/pageSDK/authentication"
 	"github.com/BekkkEvrika/pageSDK/engine"
 	"github.com/BekkkEvrika/pageSDK/manifest"
+	"github.com/gin-gonic/gin"
 )
 
 // Application is the framework orchestrator.
 type Application = app.Application
 type Config = app.Config
+type Route = app.Route
 
 type AccessManifest = access.Manifest
 type AccessConfig = access.Config
@@ -94,8 +96,21 @@ const (
 )
 
 // New creates a new pageSDK application.
-func New(config ...Config) *Application {
-	return app.New(config...)
+// New creates an application and executes setup callbacks in declaration order.
+func New(config Config, setups ...func(app *Application) error) *Application {
+	application := app.New(config)
+	callbacks := make([]app.SetupFunc, 0, len(setups))
+	for _, setup := range setups {
+		callbacks = append(callbacks, app.SetupFunc(setup))
+	}
+	application.Configure(callbacks...)
+	return application
+}
+
+// PrincipalFromContext returns the verified identity available to a custom
+// route handler registered through Application.RegisterRoute.
+func PrincipalFromContext(ctx *gin.Context) (Principal, bool) {
+	return app.PrincipalFromContext(ctx)
 }
 
 func NewKeycloakJWTAuthenticator(config KeycloakJWTConfig) *KeycloakJWTAuthenticator {

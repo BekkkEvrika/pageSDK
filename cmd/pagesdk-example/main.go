@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/BekkkEvrika/pageSDK/engine"
 	"github.com/BekkkEvrika/pageSDK/engine/formengine"
 	inputs "github.com/BekkkEvrika/pageSDK/form"
+	"github.com/gin-gonic/gin"
 )
 
 const defaultAddr = ":8080"
@@ -34,13 +36,46 @@ var (
 
 func main() {
 	config := keycloakConfigFromEnv()
-	application := pagesdk.New(config)
-	if config.Authenticator != nil {
-		application.UseRPTAccessAuthorizer()
-	}
-	if err := registerAccessGroups(application); err != nil {
-		panic(err)
-	}
+	application := pagesdk.New(
+		config,
+		func(app *pagesdk.Application) error {
+			for _, group := range []pagesdk.AccessGroup{
+				usersEditViewing,
+				usersEditEditing,
+				comboSelection,
+				comboSubmit,
+			} {
+				if err := app.RegisterAccessGroup(group); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+		func(app *pagesdk.Application) error {
+			// Protected custom routes require runtime authentication. The example
+			// remains runnable locally without Keycloak when auth is disabled.
+			if config.Authenticator == nil {
+				return nil
+			}
+			app.UseRPTAccessAuthorizer()
+			return app.RegisterRoute(pagesdk.Route{
+				Method:      http.MethodGet,
+				Path:        "/api/users/profile",
+				AccessGroup: usersEditViewing,
+				Handler: func(ctx *gin.Context) {
+					principal, ok := pagesdk.PrincipalFromContext(ctx)
+					if !ok {
+						ctx.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+						return
+					}
+					ctx.JSON(http.StatusOK, gin.H{
+						"id":      principal.ID,
+						"subject": principal.User["sub"],
+					})
+				},
+			})
+		},
+	)
 
 	if err := application.Run(projectInitial, env("HTTP_ADDR", defaultAddr)); err != nil {
 		panic(err)
@@ -81,20 +116,6 @@ func env(key, fallback string) string {
 		return fallback
 	}
 	return value
-}
-
-func registerAccessGroups(app *pagesdk.Application) error {
-	for _, group := range []pagesdk.AccessGroup{
-		usersEditViewing,
-		usersEditEditing,
-		comboSelection,
-		comboSubmit,
-	} {
-		if err := app.RegisterAccessGroup(group); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func projectInitial(a *pagesdk.Application) {

@@ -137,6 +137,47 @@ routes требуют `Authorization: Bearer <token>`. Проверенные JW
 ему известен `pageInstanceId`. JWT проверяется заново на каждом запросе;
 сам access token в page instance не сохраняется.
 
+### Protected custom routes
+
+Application-owned Gin routes can reuse access groups from the central registry.
+Use the optional `Setup` callback to keep access groups and their routes next to
+application construction. Register each access group before a route references it:
+
+```go
+reportsExport := pagesdk.AccessGroup{
+	Code: "reports.export",
+	Name: "Export reports",
+	Type: pagesdk.AccessGroupAction,
+}
+
+app := pagesdk.New(config, func(app *pagesdk.Application) error {
+	if err := app.RegisterAccessGroup(reportsExport); err != nil {
+		return err
+	}
+	return app.RegisterRoute(pagesdk.Route{
+		Method:      http.MethodPost,
+		Path:        "/api/reports/export",
+		AccessGroup: reportsExport,
+		Handler: func(ctx *gin.Context) {
+			principal, _ := pagesdk.PrincipalFromContext(ctx)
+			ctx.JSON(http.StatusOK, gin.H{"subject": principal.ID})
+		},
+	})
+})
+```
+
+Setup callbacks are optional and execute in declaration order. Any error returned by one is reported by `Run`, `Bootstrap`,
+or an `access` command before the application does work.
+
+Custom routes are registered under the optional module prefix and always require
+both `Authenticator` and `AccessAuthorizer`. At runtime pageSDK checks the route
+access group through the same local-claim/UMA flow used by page events. The
+registered group is already included by `access generate` and synchronized by
+`access sync`; the route does not create a second access resource.
+
+`/page` and `/event` are reserved for generated SDK routes. Duplicate custom
+method/path pairs are rejected during registration.
+
 `cmd/pagesdk-example` читает Keycloak-настройки из env. Runtime auth включается
 явно, чтобы пример можно было запускать локально без Keycloak:
 

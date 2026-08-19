@@ -28,13 +28,26 @@ type InitFunc func(app *Application)
 // Хранит manifest, запускает bootstrap, регистрирует routes в Gin.
 // НЕ знает о DSL, UI логике, бизнес-логике.
 type Application struct {
-	manifest    *manifest.Manifest
-	router      *gin.Engine
-	config      Config
-	syncer      access.AccessSyncProvider
-	access      *access.Registry
-	instances   *pageInstanceManager
-	initialized bool
+	manifest     *manifest.Manifest
+	router       *gin.Engine
+	customRoutes []Route
+	config       Config
+	setupErr     error
+	syncer       access.AccessSyncProvider
+	access       *access.Registry
+	instances    *pageInstanceManager
+	initialized  bool
+}
+
+const principalContextKey = "pagesdk.principal"
+
+// Route describes an application-owned Gin route protected by a registered
+// access group. Custom routes are registered before the HTTP server starts.
+type Route struct {
+	Method      string
+	Path        string
+	AccessGroup access.AccessGroup
+	Handler     gin.HandlerFunc
 }
 
 type Config struct {
@@ -54,6 +67,10 @@ type Config struct {
 	AccessAuthorizer access.AccessAuthorizer
 }
 
+// SetupFunc declaratively registers access groups, custom routes, and other
+// application-owned configuration while the Application is being created.
+type SetupFunc func(app *Application) error
+
 // New создаёт новый Application.
 func New(config ...Config) *Application {
 	a := &Application{
@@ -70,6 +87,23 @@ func New(config ...Config) *Application {
 	a.instances = newPageInstanceManager(a.config.PageInstanceTTL, a.config.MaxPageInstances)
 	a.syncer = access.NewKeycloakUMAProvider(a.accessConfig())
 	return a
+}
+
+// Configure executes setup callbacks in declaration order. The first error is
+// deferred and returned by Run, Bootstrap, or an access command.
+func (a *Application) Configure(setups ...SetupFunc) {
+	if a == nil || a.setupErr != nil {
+		return
+	}
+	for _, setup := range setups {
+		if setup == nil {
+			continue
+		}
+		if err := setup(a); err != nil {
+			a.setupErr = fmt.Errorf("application setup: %w", err)
+			return
+		}
+	}
 }
 
 func (a *Application) applyEnvConfig() {
@@ -108,6 +142,62 @@ func (a *Application) RegisterAccessGroup(group access.AccessGroup) error {
 	return a.access.Register(group)
 }
 
+// RegisterRoute registers an application-owned route protected by JWT
+// authentication and UMA authorization through an existing access group.
+func (a *Application) RegisterRoute(route Route) error {
+	if a.initialized {
+		return errors.New("register route: application is already initialized")
+	}
+	route.Method = strings.ToUpper(strings.TrimSpace(route.Method))
+	route.Path = strings.TrimSpace(route.Path)
+	if route.Method == "" {
+		return errors.New("register route: HTTP method is required")
+	}
+	if strings.ContainsAny(route.Method, " \t\r\n") {
+		return fmt.Errorf("register route %q: invalid HTTP method %q", route.Path, route.Method)
+	}
+	if route.Path == "" || !strings.HasPrefix(route.Path, "/") || strings.ContainsAny(route.Path, "?#") {
+		return fmt.Errorf("register route %s: path must start with / and must not contain query or fragment", route.Method)
+	}
+	if reservedRoutePath(route.Path) {
+		return fmt.Errorf("register route %s %s: /page and /event are reserved by pageSDK", route.Method, route.Path)
+	}
+	if route.Handler == nil {
+		return fmt.Errorf("register route %s %s: handler is required", route.Method, route.Path)
+	}
+	group, ok := a.access.Get(route.AccessGroup.Code)
+	if !ok {
+		return fmt.Errorf("register route %s %s: access group %q is not registered", route.Method, route.Path, route.AccessGroup.Code)
+	}
+	route.AccessGroup = group
+	for _, existing := range a.customRoutes {
+		if existing.Method == route.Method && existing.Path == route.Path {
+			return fmt.Errorf("register route: duplicate route %s %s", route.Method, route.Path)
+		}
+	}
+	a.customRoutes = append(a.customRoutes, route)
+	return nil
+}
+
+func reservedRoutePath(path string) bool {
+	path = "/" + strings.Trim(strings.TrimSpace(path), "/")
+	return path == "/page" || strings.HasPrefix(path, "/page/") ||
+		path == "/event" || strings.HasPrefix(path, "/event/")
+}
+
+// PrincipalFromContext returns the identity verified for a custom route.
+func PrincipalFromContext(ctx *gin.Context) (authentication.Principal, bool) {
+	if ctx == nil {
+		return authentication.Principal{}, false
+	}
+	value, ok := ctx.Get(principalContextKey)
+	if !ok {
+		return authentication.Principal{}, false
+	}
+	principal, ok := value.(authentication.Principal)
+	return principal, ok
+}
+
 func (a *Application) SetAccessSyncProvider(provider access.AccessSyncProvider) {
 	if provider != nil {
 		a.syncer = provider
@@ -142,6 +232,12 @@ func (a *Application) UseRPTAccessAuthorizer(ttl ...time.Duration) {
 // 3. Запускает Gin на указанном адресе.
 func (a *Application) Bootstrap(initFn InitFunc, addr string) error {
 	a.initialize(initFn)
+	if a.setupErr != nil {
+		return a.setupErr
+	}
+	if err := a.validateCustomRouteSecurity(); err != nil {
+		return err
+	}
 
 	// Шаг 2: auto route generation из manifest
 	a.registerRoutes()
@@ -167,6 +263,9 @@ func (a *Application) Execute(ctx context.Context, initFn InitFunc, addr string,
 		return errors.New("access command requires one of: generate, validate, diff, sync")
 	}
 	a.initialize(initFn)
+	if a.setupErr != nil {
+		return a.setupErr
+	}
 	path := a.config.AccessManifestPath
 	switch args[1] {
 	case "generate":
@@ -319,6 +418,36 @@ func (a *Application) registerRoutes() {
 			engine.RoutePath(a.config.Module, "/page/"+entry.Key+"/instance"),
 			a.deletePageInstance(entry.Key),
 		)
+	}
+	for _, route := range a.customRoutes {
+		a.router.Handle(route.Method, engine.RoutePath(a.config.Module, route.Path), a.makeCustomRouteHandler(route))
+	}
+}
+
+func (a *Application) validateCustomRouteSecurity() error {
+	if len(a.customRoutes) == 0 {
+		return nil
+	}
+	if a.config.Authenticator == nil {
+		return errors.New("custom routes require an Authenticator")
+	}
+	if a.config.AccessAuthorizer == nil {
+		return errors.New("custom routes require an AccessAuthorizer")
+	}
+	return nil
+}
+
+func (a *Application) makeCustomRouteHandler(route Route) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		principal, ok := a.authenticate(ctx)
+		if !ok {
+			return
+		}
+		ctx.Set(principalContextKey, principal)
+		if !a.authorizeAccessGroup(ctx, principal, route.AccessGroup.Code) {
+			return
+		}
+		route.Handler(ctx)
 	}
 }
 

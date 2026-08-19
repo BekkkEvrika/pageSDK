@@ -210,6 +210,17 @@ func (r *Registry) All() []AccessGroup {
 	return groups
 }
 
+// Get returns a registered access group by its stable code.
+func (r *Registry) Get(code string) (AccessGroup, bool) {
+	if r == nil {
+		return AccessGroup{}, false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	group, ok := r.groups[strings.TrimSpace(code)]
+	return group, ok
+}
+
 type UnsupportedKeycloakProvider struct {
 	Config Config
 }
