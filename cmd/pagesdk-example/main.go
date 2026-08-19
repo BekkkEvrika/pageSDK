@@ -58,7 +58,7 @@ func main() {
 				return nil
 			}
 			app.UseRPTAccessAuthorizer()
-			return app.RegisterRoute(pagesdk.Route{
+			return app.RegisterRoutes(pagesdk.Route{
 				Method:      http.MethodGet,
 				Path:        "/api/users/profile",
 				AccessGroup: usersEditViewing,

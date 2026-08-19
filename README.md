@@ -154,15 +154,25 @@ app := pagesdk.New(config, func(app *pagesdk.Application) error {
 	if err := app.RegisterAccessGroup(reportsExport); err != nil {
 		return err
 	}
-	return app.RegisterRoute(pagesdk.Route{
-		Method:      http.MethodPost,
-		Path:        "/api/reports/export",
-		AccessGroup: reportsExport,
-		Handler: func(ctx *gin.Context) {
-			principal, _ := pagesdk.PrincipalFromContext(ctx)
-			ctx.JSON(http.StatusOK, gin.H{"subject": principal.ID})
+	return app.RegisterRoutes(
+		pagesdk.Route{
+			Method:      http.MethodPost,
+			Path:        "/api/reports/export",
+			AccessGroup: reportsExport,
+			Handler: func(ctx *gin.Context) {
+				principal, _ := pagesdk.PrincipalFromContext(ctx)
+				ctx.JSON(http.StatusOK, gin.H{"subject": principal.ID})
+			},
 		},
-	})
+		pagesdk.Route{
+			Method:      http.MethodGet,
+			Path:        "/api/reports/export/status",
+			AccessGroup: reportsExport,
+			Handler: func(ctx *gin.Context) {
+				ctx.Status(http.StatusNoContent)
+			},
+		},
+	)
 })
 ```
 
@@ -177,6 +187,8 @@ registered group is already included by `access generate` and synchronized by
 
 `/page` and `/event` are reserved for generated SDK routes. Duplicate custom
 method/path pairs are rejected during registration.
+`RegisterRoutes` accepts any number of routes and registers the batch
+atomically: if one route is invalid, none of the routes from that call are kept.
 
 `cmd/pagesdk-example` читает Keycloak-настройки из env. Runtime auth включается
 явно, чтобы пример можно было запускать локально без Keycloak:

@@ -179,6 +179,19 @@ func (a *Application) RegisterRoute(route Route) error {
 	return nil
 }
 
+// RegisterRoutes registers application-owned routes as a single batch. If any
+// route is invalid, none of the routes from the batch remain registered.
+func (a *Application) RegisterRoutes(routes ...Route) error {
+	registered := len(a.customRoutes)
+	for _, route := range routes {
+		if err := a.RegisterRoute(route); err != nil {
+			a.customRoutes = a.customRoutes[:registered]
+			return err
+		}
+	}
+	return nil
+}
+
 func reservedRoutePath(path string) bool {
 	path = "/" + strings.Trim(strings.TrimSpace(path), "/")
 	return path == "/page" || strings.HasPrefix(path, "/page/") ||

@@ -108,7 +108,8 @@ func New(config Config, setups ...func(app *Application) error) *Application {
 }
 
 // PrincipalFromContext returns the verified identity available to a custom
-// route handler registered through Application.RegisterRoute.
+// route handler registered through Application.RegisterRoute or
+// Application.RegisterRoutes.
 func PrincipalFromContext(ctx *gin.Context) (Principal, bool) {
 	return app.PrincipalFromContext(ctx)
 }
