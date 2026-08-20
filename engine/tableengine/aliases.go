@@ -16,6 +16,8 @@ type TableColumnFormat = table.TableColumnFormat
 type TableStateConfig = table.TableStateConfig
 type TableSortingItem = table.TableSortingItem
 type TableFilterState = table.TableFilterState
+type NavigationCallback = table.NavigationCallback
+type OpenOptions = table.OpenOptions
 
 type TableColumnKind = table.TableColumnKind
 type TableColumnAlign = table.TableColumnAlign

@@ -959,6 +959,25 @@ func onUserSelected(ctx *formengine.RuntimeContext) {
 Имена callback routes выводятся из имен Go-функций. Для стабильности
 используйте именованные package-level functions, а не динамические closures.
 
+Table handler использует тот же механизм через `tableengine.OpenOptions`:
+
+```go
+func onPickUser(ctx *tableengine.TableRuntimeContext) {
+	ctx.OpenDialog("users.picker", tableengine.OpenOptions{
+		Extra:    map[string]any{"group_id": 10},
+		Callback: onTableUserSelected,
+	})
+}
+
+func onTableUserSelected(ctx *tableengine.TableRuntimeContext) {
+	ctx.Table("users").SetData(loadUsers(ctx.Extra["user_id"]))
+}
+```
+
+Существующая передача параметров через `engine.Params` остается доступной.
+Callback может записывать mutations, открывать следующую страницу или dialog
+и возвращать ошибку через `ctx.SetError`.
+
 ## 13. Dialogs
 
 Простые helpers:

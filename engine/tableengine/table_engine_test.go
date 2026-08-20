@@ -44,6 +44,10 @@ type selectedActionTablePage struct {
 	called *table.TableRuntimeContext
 }
 
+type navigationCallbackTablePage struct {
+	*TableEngine
+}
+
 func (p *runtimeTablePage) Init(ctx *engine.BuildContext) error {
 	p.Table("users").
 		Columns(p.Column("id"), p.Column("name")).
@@ -147,6 +151,24 @@ func (p *selectedActionTablePage) Init(ctx *engine.BuildContext) error {
 			p.called = ctx
 		})
 	return nil
+}
+
+func (p *navigationCallbackTablePage) Init(ctx *engine.BuildContext) error {
+	p.Table("users").
+		ToolbarAction(table.ActionSchema{ID: "pick", Label: "Pick"}, func(ctx *table.TableRuntimeContext) {
+			ctx.OpenDialog("users.picker", table.OpenOptions{
+				Extra:    map[string]any{"group_id": 10},
+				Callback: onTableUserSelected,
+			})
+		})
+	return nil
+}
+
+func onTableUserSelected(ctx *table.TableRuntimeContext) {
+	ctx.Table("users").SetData(table.TableData{
+		Rows:  []map[string]any{{"id": ctx.Extra["user_id"]}},
+		Total: 1,
+	})
 }
 
 func TestColumnBuildsPackageTableSchema(t *testing.T) {
@@ -359,8 +381,8 @@ func TestTableRuntimeRoutesAndFeatures(t *testing.T) {
 	page := &runtimeTablePage{TableEngine: &TableEngine{}}
 
 	routes := page.TableEngine.Routes("users.list", page)
-	if len(routes) != 4 {
-		t.Fatalf("routes len = %d, want render plus three events", len(routes))
+	if len(routes) != 5 {
+		t.Fatalf("routes len = %d, want render, three events, and callback", len(routes))
 	}
 
 	wantPaths := []string{
@@ -515,8 +537,8 @@ func TestTableToolbarActionExposesRouteInActionDSL(t *testing.T) {
 	page := &toolbarActionTablePage{TableEngine: &TableEngine{}}
 
 	routes := page.TableEngine.Routes("users.list", page)
-	if len(routes) != 2 {
-		t.Fatalf("routes len = %d, want render plus toolbar action", len(routes))
+	if len(routes) != 3 {
+		t.Fatalf("routes len = %d, want render, toolbar action, and callback", len(routes))
 	}
 	if routes[1].Path != "/event/users.list/table/users/toolbar/refresh" {
 		t.Fatalf("toolbar action route = %q", routes[1].Path)
@@ -602,8 +624,8 @@ func TestTableToolbarActionIgnoresClientPayload(t *testing.T) {
 func TestEachToolbarActionRouteCallsOnlyItsOwnHandler(t *testing.T) {
 	bootstrapPage := &separateToolbarRoutesPage{TableEngine: &TableEngine{}}
 	routes := bootstrapPage.TableEngine.Routes("users.list", bootstrapPage)
-	if len(routes) != 3 {
-		t.Fatalf("routes len = %d, want render plus two toolbar routes", len(routes))
+	if len(routes) != 4 {
+		t.Fatalf("routes len = %d, want render, two toolbar routes, and callback", len(routes))
 	}
 
 	routeByPath := map[string]engine.RouteHandler{}
@@ -639,8 +661,8 @@ func TestEachToolbarActionRouteCallsOnlyItsOwnHandler(t *testing.T) {
 func TestTableColumnActionsAreScopedByColumn(t *testing.T) {
 	bootstrapPage := &scopedColumnActionsTablePage{TableEngine: &TableEngine{}}
 	routes := bootstrapPage.TableEngine.Routes("users.list", bootstrapPage)
-	if len(routes) != 3 {
-		t.Fatalf("routes len = %d, want render plus two column actions", len(routes))
+	if len(routes) != 4 {
+		t.Fatalf("routes len = %d, want render, two column actions, and callback", len(routes))
 	}
 
 	routeByPath := map[string]engine.RouteHandler{}
@@ -711,7 +733,7 @@ func TestTableColumnActionsAreScopedByColumn(t *testing.T) {
 func TestTableSelectedActionReceivesRowKeys(t *testing.T) {
 	bootstrapPage := &selectedActionTablePage{TableEngine: &TableEngine{}}
 	routes := bootstrapPage.TableEngine.Routes("users.list", bootstrapPage)
-	if len(routes) != 2 || routes[1].Path != "/event/users.list/table/users/selected/delete_selected" {
+	if len(routes) != 3 || routes[1].Path != "/event/users.list/table/users/selected/delete_selected" {
 		t.Fatalf("unexpected selected action routes: %#v", routes)
 	}
 
@@ -774,8 +796,8 @@ func TestTableRowActionExposesRouteInActionDSL(t *testing.T) {
 	page := &rowActionTablePage{TableEngine: &TableEngine{}}
 
 	routes := page.TableEngine.Routes("users.list", page)
-	if len(routes) != 2 {
-		t.Fatalf("routes len = %d, want render plus row action", len(routes))
+	if len(routes) != 3 {
+		t.Fatalf("routes len = %d, want render, row action, and callback", len(routes))
 	}
 	if routes[1].Path != "/event/users.list/table/users/row/edit" {
 		t.Fatalf("row action route = %q", routes[1].Path)
@@ -872,8 +894,8 @@ func TestTableRowActionRequiresRowAndRowID(t *testing.T) {
 func TestEachRowActionRouteCallsOnlyItsOwnHandler(t *testing.T) {
 	bootstrapPage := &separateRowRoutesPage{TableEngine: &TableEngine{}}
 	routes := bootstrapPage.TableEngine.Routes("users.list", bootstrapPage)
-	if len(routes) != 3 {
-		t.Fatalf("routes len = %d, want render plus two row routes", len(routes))
+	if len(routes) != 4 {
+		t.Fatalf("routes len = %d, want render, two row routes, and callback", len(routes))
 	}
 
 	routeByPath := map[string]engine.RouteHandler{}
@@ -904,5 +926,66 @@ func TestEachRowActionRouteCallsOnlyItsOwnHandler(t *testing.T) {
 	}
 	if deletePage.called != "delete" {
 		t.Fatalf("delete route called %q handler", deletePage.called)
+	}
+}
+
+func TestTableNavigationCallbackRouteIsGeneratedAndDispatched(t *testing.T) {
+	page := &navigationCallbackTablePage{TableEngine: &TableEngine{}}
+	var openHandler engine.RouteHandler
+	var callbackHandler engine.RouteHandler
+	for _, route := range page.TableEngine.Routes("users.list", page) {
+		switch route.Path {
+		case "/event/users.list/table/users/toolbar/pick":
+			openHandler = route.Handler
+		case "/event/users.list/callback/:callback":
+			callbackHandler = route.Handler
+		}
+	}
+	if openHandler == nil {
+		t.Fatal("expected pick toolbar event route")
+	}
+	if callbackHandler == nil {
+		t.Fatal("expected navigation callback route")
+	}
+
+	openResult, err := openHandler(&engine.RequestContext{}, &navigationCallbackTablePage{TableEngine: &TableEngine{}})
+	if err != nil {
+		t.Fatalf("open handler returned error: %v", err)
+	}
+	runtime, ok := openResult.(*engine.RuntimeResult)
+	if !ok {
+		t.Fatalf("expected runtime result, got %T", openResult)
+	}
+	if len(runtime.Navigation) != 1 {
+		t.Fatalf("expected one navigation action, got %#v", runtime.Navigation)
+	}
+	action := runtime.Navigation[0]
+	if action.Type != engine.NavigationOpen || action.Mode != engine.NavigationModeDialog || action.Page != "users.picker" {
+		t.Fatalf("unexpected navigation action: %#v", action)
+	}
+	if action.Extra["group_id"] != 10 {
+		t.Fatalf("expected group_id extra, got %#v", action.Extra)
+	}
+	if action.Callback != "/event/users.list/callback/on_table_user_selected" {
+		t.Fatalf("expected generated callback route, got %q", action.Callback)
+	}
+
+	callbackResult, err := callbackHandler(&engine.RequestContext{
+		Params: engine.Params{"callback": "on_table_user_selected"},
+		Body:   []byte(`{"result":{"user_id":77}}`),
+	}, &navigationCallbackTablePage{TableEngine: &TableEngine{}})
+	if err != nil {
+		t.Fatalf("callback handler returned error: %v", err)
+	}
+	callbackRuntime, ok := callbackResult.(*engine.RuntimeResult)
+	if !ok {
+		t.Fatalf("expected runtime result, got %T", callbackResult)
+	}
+	if len(callbackRuntime.Mutations) != 1 {
+		t.Fatalf("expected one callback mutation, got %#v", callbackRuntime.Mutations)
+	}
+	data, ok := callbackRuntime.Mutations[0].Value.(table.TableData)
+	if !ok || len(data.Rows) != 1 || data.Rows[0]["id"] != float64(77) {
+		t.Fatalf("expected selected user table data, got %#v", callbackRuntime.Mutations[0].Value)
 	}
 }

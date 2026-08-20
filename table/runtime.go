@@ -22,6 +22,15 @@ const (
 // TableEventHandler handles one table runtime event.
 type TableEventHandler func(ctx *TableRuntimeContext)
 
+// NavigationCallback handles a result returned from a page opened by a table event.
+type NavigationCallback func(ctx *TableRuntimeContext)
+
+// OpenOptions describes frontend-owned navigation state for opening another page.
+type OpenOptions struct {
+	Extra    map[string]any
+	Callback NavigationCallback
+}
+
 // TableEventRegistrar is implemented by TableEngine.
 type TableEventRegistrar interface {
 	RegisterTableHandler(tableID string, event TableEventType, handler TableEventHandler)
@@ -95,6 +104,7 @@ type TableRuntimeContext struct {
 	Mutations  []engine.Mutation
 	Navigation []engine.NavigationAction
 	Err        error
+	callback   func(NavigationCallback) string
 }
 
 // RuntimeTable is a mutation handle for one table.
@@ -139,24 +149,20 @@ func (ctx *TableRuntimeContext) Error() error {
 	return ctx.Err
 }
 
+// SetNavigationCallbackRegistrar configures callback URL registration for the
+// runtime engine. Application code normally does not need to call this method.
+func (ctx *TableRuntimeContext) SetNavigationCallbackRegistrar(registrar func(NavigationCallback) string) {
+	ctx.callback = registrar
+}
+
 // OpenDialog records dialog navigation.
-func (ctx *TableRuntimeContext) OpenDialog(page string, params ...engine.Params) {
-	ctx.Navigation = append(ctx.Navigation, engine.NavigationAction{
-		Type:  engine.NavigationOpen,
-		Mode:  engine.NavigationModeDialog,
-		Page:  page,
-		Extra: optionalExtra(params),
-	})
+func (ctx *TableRuntimeContext) OpenDialog(page string, options ...any) {
+	ctx.open(page, engine.NavigationModeDialog, options...)
 }
 
 // OpenTab records tab navigation.
-func (ctx *TableRuntimeContext) OpenTab(page string, params ...engine.Params) {
-	ctx.Navigation = append(ctx.Navigation, engine.NavigationAction{
-		Type:  engine.NavigationOpen,
-		Mode:  engine.NavigationModeTab,
-		Page:  page,
-		Extra: optionalExtra(params),
-	})
+func (ctx *TableRuntimeContext) OpenTab(page string, options ...any) {
+	ctx.open(page, engine.NavigationModeTab, options...)
 }
 
 // Close records current page close.
@@ -172,13 +178,52 @@ func (ctx *TableRuntimeContext) CloseWithResult(result any) {
 	})
 }
 
-func optionalExtra(params []engine.Params) map[string]any {
-	if len(params) == 0 {
-		return nil
+func (ctx *TableRuntimeContext) open(page string, mode engine.NavigationMode, options ...any) {
+	openOptions, err := normalizeOpenOptions(options...)
+	if err != nil {
+		ctx.SetError(err)
+		return
 	}
-	extra := make(map[string]any, len(params[0]))
-	for key, value := range params[0] {
-		extra[key] = value
+	action := engine.NavigationAction{
+		Type:  engine.NavigationOpen,
+		Mode:  mode,
+		Page:  page,
+		Extra: openOptions.Extra,
 	}
-	return extra
+	if openOptions.Callback != nil {
+		if ctx.callback == nil {
+			ctx.SetError(fmt.Errorf("table runtime: navigation callback registrar is not configured"))
+			return
+		}
+		action.Callback = ctx.callback(openOptions.Callback)
+	}
+	ctx.Navigation = append(ctx.Navigation, action)
+}
+
+func normalizeOpenOptions(options ...any) (OpenOptions, error) {
+	if len(options) == 0 || options[0] == nil {
+		return OpenOptions{}, nil
+	}
+	if len(options) > 1 {
+		return OpenOptions{}, fmt.Errorf("table runtime: expected one open options argument, got %d", len(options))
+	}
+	switch option := options[0].(type) {
+	case OpenOptions:
+		return option, nil
+	case *OpenOptions:
+		if option == nil {
+			return OpenOptions{}, nil
+		}
+		return *option, nil
+	case engine.Params:
+		extra := make(map[string]any, len(option))
+		for key, value := range option {
+			extra[key] = value
+		}
+		return OpenOptions{Extra: extra}, nil
+	case map[string]any:
+		return OpenOptions{Extra: option}, nil
+	default:
+		return OpenOptions{}, fmt.Errorf("table runtime: unsupported open options type %T", option)
+	}
 }

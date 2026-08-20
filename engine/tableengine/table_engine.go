@@ -304,6 +304,12 @@ func (t *TableEngine) Routes(pageKey string, page engine.Page) []engine.RouteDef
 			AccessGroupCode: t.accessGroupForEvent(eventKey),
 		})
 	}
+	routes = append(routes, engine.RouteDefinition{
+		Method:  http.MethodPost,
+		Path:    "/event/" + pageKey + "/callback/:callback",
+		Handler: t.handleCallbackRoute(pageKey),
+		Mode:    engine.RouteModeEvent,
+	})
 	return routes
 }
 
@@ -661,7 +667,7 @@ func (t *TableEngine) runtimeContext(req *engine.RequestContext, key tableEventK
 		params[name] = value
 	}
 
-	return &table.TableRuntimeContext{
+	runtimeCtx := &table.TableRuntimeContext{
 		State:  state,
 		User:   req.User,
 		System: req.System,
@@ -679,7 +685,9 @@ func (t *TableEngine) runtimeContext(req *engine.RequestContext, key tableEventK
 			PageSize:     state.PageSize,
 			Filters:      state.Filters,
 		},
-	}, nil
+	}
+	t.configureNavigationCallbacks(runtimeCtx, req)
+	return runtimeCtx, nil
 }
 
 func decodeTablePayload(body []byte, event table.TableEventType, target any) error {
