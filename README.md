@@ -20,6 +20,7 @@
 - [Полное руководство пользователя](docs/user-guide.md)
 - [Протокол frontend-событий](docs/client-events.md)
 - [Lifecycle и архитектура page instances](docs/page-instances.md)
+- [Публикация sidebar](docs/sidebar.md)
 - [Пример FormEngine](page/users_edit.go)
 - [Пример TableEngine](page/users_page.go)
 - [Пример зависимых combo boxes](cmd/pagesdk-example/main.go)

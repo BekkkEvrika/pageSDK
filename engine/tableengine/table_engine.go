@@ -10,6 +10,7 @@ import (
 
 	"github.com/BekkkEvrika/pageSDK/access"
 	"github.com/BekkkEvrika/pageSDK/engine"
+	"github.com/BekkkEvrika/pageSDK/sidebar"
 	"github.com/BekkkEvrika/pageSDK/table"
 )
 
@@ -20,9 +21,10 @@ import (
 //
 //	GET  /page/{key}                       — рендер таблицы (DSL + данные)
 type TableEngine struct {
-	dsl      table.TableSchema
-	tableID  string
-	handlers map[tableEventKey]table.TableEventHandler
+	dsl         table.TableSchema
+	tableID     string
+	handlers    map[tableEventKey]table.TableEventHandler
+	sidebarKeys []string
 }
 
 type tableEventKey struct {
@@ -231,6 +233,30 @@ func (t *TableEngine) AccessElements() []access.ElementBinding {
 		result = append(result, tableActionElements(tableID, "toolbar", t.dsl.Actions.Toolbar)...)
 		result = append(result, tableActionElements(tableID, "row", t.dsl.Actions.Row)...)
 		result = append(result, tableActionElements(tableID, "selected", t.dsl.Actions.Selected)...)
+	}
+	return result
+}
+
+// Sidebar attaches this page to a sidebar node registered on Application.
+// The node target is derived from the page route during application bootstrap.
+func (t *TableEngine) Sidebar(node sidebar.Node) {
+	key := strings.TrimSpace(node.Key)
+	if key == "" {
+		return
+	}
+	for _, existing := range t.sidebarKeys {
+		if existing == key {
+			return
+		}
+	}
+	t.sidebarKeys = append(t.sidebarKeys, key)
+}
+
+// SidebarBindings exposes page-to-node metadata to Application.
+func (t *TableEngine) SidebarBindings() []sidebar.Binding {
+	result := make([]sidebar.Binding, 0, len(t.sidebarKeys))
+	for _, key := range t.sidebarKeys {
+		result = append(result, sidebar.Binding{NodeKey: key})
 	}
 	return result
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/BekkkEvrika/pageSDK/logging"
 	sdklog "github.com/BekkkEvrika/pageSDK/logging/log"
 	"github.com/BekkkEvrika/pageSDK/manifest"
+	"github.com/BekkkEvrika/pageSDK/sidebar"
 	"github.com/gin-gonic/gin"
 )
 
@@ -35,6 +36,7 @@ type Application struct {
 	setupErr     error
 	syncer       access.AccessSyncProvider
 	access       *access.Registry
+	sidebar      *sidebar.Registry
 	instances    *pageInstanceManager
 	initialized  bool
 }
@@ -61,6 +63,7 @@ type Config struct {
 	PageInstanceTTL     time.Duration
 	MaxPageInstances    int
 	AccessCacheTTL      time.Duration
+	Sidebar             sidebar.Config
 	// Authenticator enables Bearer authentication for all page, event and
 	// instance lifecycle routes. Nil preserves the legacy unauthenticated mode.
 	Authenticator    authentication.Authenticator
@@ -76,6 +79,7 @@ func New(config ...Config) *Application {
 	a := &Application{
 		manifest: manifest.New(),
 		access:   access.NewRegistry(),
+		sidebar:  sidebar.NewRegistry(),
 	}
 	if len(config) > 0 {
 		a.config = config[0]
@@ -140,6 +144,83 @@ func (a *Application) AccessRegistry() *access.Registry {
 
 func (a *Application) RegisterAccessGroup(group access.AccessGroup) error {
 	return a.access.Register(group)
+}
+
+func (a *Application) SidebarRegistry() *sidebar.Registry {
+	return a.sidebar
+}
+
+// RegisterSidebarNode adds one declarative sidebar node to the central registry.
+func (a *Application) RegisterSidebarNode(node sidebar.Node) error {
+	return a.sidebar.Register(node)
+}
+
+// RegisterSidebarNodes adds a batch atomically.
+func (a *Application) RegisterSidebarNodes(nodes ...sidebar.Node) error {
+	return a.sidebar.RegisterMany(nodes...)
+}
+
+// SetSidebarPublisher replaces the transport adapter from Config.Sidebar.
+func (a *Application) SetSidebarPublisher(publisher sidebar.Publisher) {
+	a.config.Sidebar.Publisher = publisher
+}
+
+// PublishSidebar validates and publishes one full sidebar operation. Page
+// targets are derived from the currently registered manifest.
+func (a *Application) PublishSidebar(ctx context.Context, action sidebar.Action) error {
+	return a.publishSidebar(ctx, action, nil)
+}
+
+func (a *Application) publishSidebar(ctx context.Context, action sidebar.Action, bindings []sidebar.Binding) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	publisher := a.config.Sidebar.Publisher
+	if publisher == nil {
+		return errors.New("sidebar publisher is not configured")
+	}
+
+	var (
+		event sidebar.Event
+		err   error
+	)
+	switch action {
+	case sidebar.ActionRegistration, sidebar.ActionRefresh:
+		if bindings == nil {
+			bindings = a.collectSidebarBindings()
+		}
+		event, err = a.sidebar.BuildEvent(a.config.Sidebar, bindings, a.access)
+	case sidebar.ActionUnregister:
+		event, err = sidebar.UnregisterEvent(a.config.Sidebar.ServiceID)
+	default:
+		return fmt.Errorf("unknown sidebar action %q", action)
+	}
+	if err != nil {
+		return err
+	}
+	if err := publisher.PublishSidebar(ctx, action, event); err != nil {
+		return fmt.Errorf("publish sidebar %s: %w", action, err)
+	}
+	return nil
+}
+
+func (a *Application) collectSidebarBindings() []sidebar.Binding {
+	var result []sidebar.Binding
+	for _, entry := range a.manifest.All() {
+		page := entry.Factory()
+		engineInstance := page.GetEngine()
+		_ = engineInstance.Routes(entry.Key, page)
+		provider, ok := engineInstance.(interface{ SidebarBindings() []sidebar.Binding })
+		if !ok {
+			continue
+		}
+		for _, binding := range provider.SidebarBindings() {
+			binding.PageKey = entry.Key
+			binding.Target = engine.RoutePath(a.config.Module, "/page/"+entry.Key)
+			result = append(result, binding)
+		}
+	}
+	return result
 }
 
 // RegisterRoute registers an application-owned route protected by JWT
@@ -252,8 +333,13 @@ func (a *Application) Bootstrap(initFn InitFunc, addr string) error {
 		return err
 	}
 
-	// Шаг 2: auto route generation из manifest
-	a.registerRoutes()
+	// Шаг 2: auto route generation и сбор sidebar bindings из sample pages.
+	bindings := a.registerRoutes()
+	if a.sidebar.Len() > 0 || len(bindings) > 0 {
+		if err := a.publishSidebar(context.Background(), sidebar.ActionRegistration, bindings); err != nil {
+			return err
+		}
+	}
 
 	// Шаг 3: запуск HTTP сервера
 	return a.router.Run(addr)
@@ -412,7 +498,8 @@ func printDiffSection(output io.Writer, title string, values []string) {
 
 // registerRoutes итерирует manifest и получает route metadata из sample Engine.
 // Render creates a Page instance; events reuse that stored Page.
-func (a *Application) registerRoutes() {
+func (a *Application) registerRoutes() []sidebar.Binding {
+	var bindings []sidebar.Binding
 	a.ensureRouter()
 	a.router.Use(logging.LogMiddleware)
 	for _, entry := range a.manifest.All() {
@@ -427,6 +514,13 @@ func (a *Application) registerRoutes() {
 		for _, route := range eng.Routes(entry.Key, samplePage) {
 			a.registerRoute(entry, route)
 		}
+		if provider, ok := eng.(interface{ SidebarBindings() []sidebar.Binding }); ok {
+			for _, binding := range provider.SidebarBindings() {
+				binding.PageKey = entry.Key
+				binding.Target = engine.RoutePath(a.config.Module, "/page/"+entry.Key)
+				bindings = append(bindings, binding)
+			}
+		}
 		a.router.DELETE(
 			engine.RoutePath(a.config.Module, "/page/"+entry.Key+"/instance"),
 			a.deletePageInstance(entry.Key),
@@ -435,6 +529,7 @@ func (a *Application) registerRoutes() {
 	for _, route := range a.customRoutes {
 		a.router.Handle(route.Method, engine.RoutePath(a.config.Module, route.Path), a.makeCustomRouteHandler(route))
 	}
+	return bindings
 }
 
 func (a *Application) validateCustomRouteSecurity() error {

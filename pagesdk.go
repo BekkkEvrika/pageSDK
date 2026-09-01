@@ -10,6 +10,7 @@ import (
 	"github.com/BekkkEvrika/pageSDK/authentication"
 	"github.com/BekkkEvrika/pageSDK/engine"
 	"github.com/BekkkEvrika/pageSDK/manifest"
+	"github.com/BekkkEvrika/pageSDK/sidebar"
 	"github.com/gin-gonic/gin"
 )
 
@@ -36,6 +37,14 @@ type RPTClaimSource = access.RPTClaimSource
 type JWTAuthorizationClaimSource = access.JWTAuthorizationClaimSource
 type KeycloakUMAAccessAuthorizer = access.KeycloakUMAAccessAuthorizer
 type KeycloakUMAProvider = access.KeycloakUMAProvider
+type SidebarConfig = sidebar.Config
+type SidebarNode = sidebar.Node
+type SidebarBinding = sidebar.Binding
+type SidebarPublishedNode = sidebar.PublishedNode
+type SidebarEvent = sidebar.Event
+type SidebarAction = sidebar.Action
+type SidebarPublisher = sidebar.Publisher
+type SidebarPublisherFunc = sidebar.PublisherFunc
 type Authenticator = authentication.Authenticator
 type AuthenticatorFunc = authentication.AuthenticatorFunc
 type Principal = authentication.Principal
@@ -71,6 +80,12 @@ const (
 	DialogWarning = engine.DialogWarning
 	DialogError   = engine.DialogError
 	DialogSuccess = engine.DialogSuccess
+)
+
+const (
+	SidebarRegistration = sidebar.ActionRegistration
+	SidebarRefresh      = sidebar.ActionRefresh
+	SidebarUnregister   = sidebar.ActionUnregister
 )
 
 const (

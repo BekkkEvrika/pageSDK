@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -16,6 +19,10 @@ import (
 const defaultAddr = ":8080"
 
 var (
+	exampleSidebarViewing = pagesdk.AccessGroup{
+		Code: "example.sidebar.viewing",
+		Name: "Example sidebar",
+	}
 	usersEditViewing = pagesdk.AccessGroup{
 		Code: "example.users.edit.viewing",
 		Name: "Users edit viewing",
@@ -32,6 +39,27 @@ var (
 		Code: "example.controls.combos.submit",
 		Name: "Combo submit action",
 	}
+
+	exampleSidebar = pagesdk.SidebarNode{
+		Key:         "example",
+		Title:       "pageSDK examples",
+		AccessGroup: exampleSidebarViewing,
+		Order:       10,
+	}
+	usersEditSidebar = pagesdk.SidebarNode{
+		Key:         "example.users.edit",
+		Title:       "Edit user",
+		ParentKey:   exampleSidebar.Key,
+		AccessGroup: usersEditViewing,
+		Order:       10,
+	}
+	comboControlsSidebar = pagesdk.SidebarNode{
+		Key:         "example.controls.combos",
+		Title:       "Dependent combo boxes",
+		ParentKey:   exampleSidebar.Key,
+		AccessGroup: comboSelection,
+		Order:       20,
+	}
 )
 
 func main() {
@@ -40,6 +68,7 @@ func main() {
 		config,
 		func(app *pagesdk.Application) error {
 			for _, group := range []pagesdk.AccessGroup{
+				exampleSidebarViewing,
 				usersEditViewing,
 				usersEditEditing,
 				comboSelection,
@@ -49,7 +78,11 @@ func main() {
 					return err
 				}
 			}
-			return nil
+			return app.RegisterSidebarNodes(
+				exampleSidebar,
+				usersEditSidebar,
+				comboControlsSidebar,
+			)
 		},
 		func(app *pagesdk.Application) error {
 			// Protected custom routes require runtime authentication. The example
@@ -96,6 +129,11 @@ func keycloakConfigFromEnv() pagesdk.Config {
 		KeycloakSyncEnabled: strings.EqualFold(os.Getenv("KEYCLOAK_SYNC_ENABLED"), "true"),
 		AccessManifestPath:  env("ACCESS_MANIFEST_PATH", "sfp.access.yaml"),
 		AccessCacheTTL:      30 * time.Second,
+		Sidebar: pagesdk.SidebarConfig{
+			ServiceID:  env("SIDEBAR_SERVICE_ID", "pagesdk-example"),
+			SectionKey: env("SIDEBAR_SECTION_KEY", "examples"),
+			Publisher:  loggingSidebarPublisher{},
+		},
 	}
 
 	if strings.EqualFold(os.Getenv("KEYCLOAK_AUTH_ENABLED"), "true") {
@@ -108,6 +146,19 @@ func keycloakConfigFromEnv() pagesdk.Config {
 		})
 	}
 	return config
+}
+
+// loggingSidebarPublisher is a transport adapter used only by the local
+// example. A real service replaces it with its RabbitMQ, Kafka, or HTTP adapter.
+type loggingSidebarPublisher struct{}
+
+func (loggingSidebarPublisher) PublishSidebar(_ context.Context, action pagesdk.SidebarAction, event pagesdk.SidebarEvent) error {
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	log.Printf("sidebar action=%s event=%s", action, payload)
+	return nil
 }
 
 func env(key, fallback string) string {
@@ -134,6 +185,8 @@ func NewUsersEditPage() pagesdk.Page {
 }
 
 func (p *UsersEditPage) Init(ctx *engine.BuildContext) error {
+	p.Sidebar(usersEditSidebar)
+
 	name := p.Text("name")
 	name.SetLabel("User name")
 	name.SetPlaceholder("Enter user name")
@@ -195,6 +248,8 @@ func NewComboExamplePage() pagesdk.Page {
 }
 
 func (p *ComboExamplePage) Init(ctx *engine.BuildContext) error {
+	p.Sidebar(comboControlsSidebar)
+
 	country := ctx.Params["country"]
 	if country == "" {
 		country = "tj"

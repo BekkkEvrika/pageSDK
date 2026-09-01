@@ -10,6 +10,7 @@ import (
 	"github.com/BekkkEvrika/pageSDK/access"
 	"github.com/BekkkEvrika/pageSDK/engine"
 	inputs "github.com/BekkkEvrika/pageSDK/form"
+	"github.com/BekkkEvrika/pageSDK/sidebar"
 )
 
 // FormEngine — движок для form-based pages.
@@ -26,6 +27,7 @@ type FormEngine struct {
 	components  map[string]formComponent
 	handlers    map[string]map[string]formEventHandler
 	eventRoutes []formEventRoute
+	sidebarKeys []string
 }
 
 type formComponent struct {
@@ -200,6 +202,30 @@ func (f *FormEngine) AccessElements() []access.ElementBinding {
 		return nil
 	}
 	return accessElementsFromContainers(f.root.Containers)
+}
+
+// Sidebar attaches this page to a sidebar node registered on Application.
+// The node target is derived from the page route during application bootstrap.
+func (f *FormEngine) Sidebar(node sidebar.Node) {
+	key := strings.TrimSpace(node.Key)
+	if key == "" {
+		return
+	}
+	for _, existing := range f.sidebarKeys {
+		if existing == key {
+			return
+		}
+	}
+	f.sidebarKeys = append(f.sidebarKeys, key)
+}
+
+// SidebarBindings exposes page-to-node metadata to Application.
+func (f *FormEngine) SidebarBindings() []sidebar.Binding {
+	result := make([]sidebar.Binding, 0, len(f.sidebarKeys))
+	for _, key := range f.sidebarKeys {
+		result = append(result, sidebar.Binding{NodeKey: key})
+	}
+	return result
 }
 
 func accessElementsFromContainers(containers []inputs.Container) []access.ElementBinding {
